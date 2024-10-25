@@ -134,7 +134,7 @@ class BoughtGoods(Database.BASE):
     bought_datetime = Column(VARCHAR, nullable=False)
     unique_id = Column(BigInteger, nullable=False, unique=True)
 
-    def __init__(self, name: str, value: str, price: int, bought_datetime: datetime.datetime, unique_id,
+    def __init__(self, name: str, value: str, price: int, bought_datetime: str, unique_id,
                  buyer_id: int = 0):
         self.item_name = name
         self.value = value
@@ -152,7 +152,7 @@ class Operations(Database.BASE):
     operation_time = Column(VARCHAR, nullable=False)
     user_telegram_id = relationship("User", back_populates="user_operations")
 
-    def __init__(self, user_id: int, operation_value: int, operation_time: datetime.datetime):
+    def __init__(self, user_id: int, operation_value: int, operation_time: str):
         self.user_id = user_id
         self.operation_value = operation_value
         self.operation_time = operation_time

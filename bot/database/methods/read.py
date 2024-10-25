@@ -142,11 +142,16 @@ def select_user_items(buyer_id: int) -> int:
     return Database().session.query(func.count()).filter(BoughtGoods.buyer_id == buyer_id).scalar()
 
 
-def select_bought_items(buyer_id: int) -> list:
+def select_bought_items(buyer_id: int) -> List[str]:
     return Database().session.query(BoughtGoods).filter(BoughtGoods.buyer_id == buyer_id).all()
 
 
-def bought_items_list(buyer_id: int) -> List[str]:
+def select_bought_item(unique_id: int) -> dict | None:
+    result = Database().session.query(BoughtGoods).filter(BoughtGoods.unique_id == unique_id).first()
+    return result.__dict__ if result else None
+
+
+def bought_items_list(buyer_id: int) -> list[str]:
     return [
         item[0] for item in
         Database().session.query(BoughtGoods.item_name).filter(BoughtGoods.buyer_id == buyer_id).all()]
@@ -235,7 +240,7 @@ def check_time() -> int | None:
     return result[0] if result else None
 
 
-def select_unfinished_operations(operation_id: str):
+def select_unfinished_operations(operation_id: str) -> List[int] | None:
     try:
         return Database().session.query(UnfinishedOperations.operation_value).filter(
             UnfinishedOperations.operation_id == operation_id).one()

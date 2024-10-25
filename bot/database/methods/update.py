@@ -1,14 +1,15 @@
+from typing import Union
 from bot.database.models import User, ItemValues, Goods, Categories, Configuration
 from bot.database import Database
 
 
-def set_role(telegram_id, role) -> None:
+def set_role(telegram_id: str, role: int) -> None:
     Database().session.query(User).filter(User.telegram_id == telegram_id).update(
         values={User.role_id: role})
     Database().session.commit()
 
 
-def update_balance(telegram_id, summ: int) -> None:
+def update_balance(telegram_id: Union[int, str], summ: int) -> None:
     old_balance = User.balance
     new_balance = old_balance + summ
     Database().session.query(User).filter(User.telegram_id == telegram_id).update(
@@ -16,7 +17,7 @@ def update_balance(telegram_id, summ: int) -> None:
     Database().session.commit()
 
 
-def buy_item_for_balance(telegram_id, summ):
+def buy_item_for_balance(telegram_id: str, summ: int) -> int:
     old_balance = User.balance
     new_balance = old_balance - summ
     Database().session.query(User).filter(User.telegram_id == telegram_id).update(
@@ -25,7 +26,7 @@ def buy_item_for_balance(telegram_id, summ):
     return Database().session.query(User.balance).filter(User.telegram_id == telegram_id).one()[0]
 
 
-def update_item(item_name, new_name, new_description, new_price, new_category_name) -> None:
+def update_item(item_name: str, new_name: str, new_description: str, new_price: int, new_category_name: str) -> None:
     Database().session.query(ItemValues).filter(ItemValues.item_name == item_name).update(
         values={ItemValues.item_name: new_name}
     )
@@ -39,7 +40,7 @@ def update_item(item_name, new_name, new_description, new_price, new_category_na
     Database().session.commit()
 
 
-def update_category(category_name, new_name) -> None:
+def update_category(category_name: str, new_name: str) -> None:
     Database().session.query(Goods).filter(Goods.category_name == category_name).update(
         values={Goods.category_name: new_name})
     Database().session.query(Categories).filter(Categories.name == category_name).update(
@@ -47,6 +48,6 @@ def update_category(category_name, new_name) -> None:
     Database().session.commit()
 
 
-def update_config(key, value) -> None:
+def update_config(key: str, value: Union[int, str]) -> None:
     Database().session.query(Configuration).filter(Configuration.key == key).update(values={Configuration.value: value})
     Database().session.commit()

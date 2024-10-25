@@ -1,7 +1,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def main_menu(role, channel=None, helper=None) -> InlineKeyboardMarkup:
+def main_menu(role: int, channel: str = None, helper: str = None) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [
             InlineKeyboardButton('🏪 Магазин', callback_data='shop'),
@@ -26,7 +26,7 @@ def main_menu(role, channel=None, helper=None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def categories_list(list_items, current_index, max_index) -> InlineKeyboardMarkup:
+def categories_list(list_items: list[str], current_index: int, max_index: int) -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup()
     page_items = list_items[current_index * 10: (current_index + 1) * 10]
     for name in page_items:
@@ -42,7 +42,7 @@ def categories_list(list_items, current_index, max_index) -> InlineKeyboardMarku
     return markup
 
 
-def goods_list(list_items, category_name, current_index, max_index) -> InlineKeyboardMarkup:
+def goods_list(list_items: list[str], category_name: str, current_index: int, max_index: int) -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup()
     page_items = list_items[current_index * 10: (current_index + 1) * 10]
     for name in page_items:
@@ -170,6 +170,8 @@ def goods_management() -> InlineKeyboardMarkup:
         [InlineKeyboardButton('добавить позицию (товар)', callback_data='item-management'),
          InlineKeyboardButton('изменить позицию', callback_data='update_item'),
          InlineKeyboardButton('удалить позицию', callback_data='delete_item')
+         ],
+        [InlineKeyboardButton('Посмотреть информацию о купленном товаре', callback_data='show_bought_item')
          ],
         [InlineKeyboardButton('🔙 Вернуться назад', callback_data='shop_management')
          ]

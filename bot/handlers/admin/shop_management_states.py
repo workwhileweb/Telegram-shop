@@ -9,7 +9,7 @@ from bot.database.methods import check_role, select_today_users, select_admins, 
     select_all_orders, select_today_operations, select_users_balance, select_all_operations, select_count_items, \
     select_count_goods, select_count_categories, select_count_bought_items, check_category, create_category, \
     delete_category, update_category, check_item, create_item, add_values_to_item, check_group, update_item, \
-    delete_item, check_value, delete_only_items
+    delete_item, check_value, delete_only_items, select_bought_item
 from bot.database.models import Permission
 from bot.handlers.other import get_bot_user_ids
 from bot.keyboards import shop_management, goods_management, categories_management, back, item_management, \
@@ -368,7 +368,7 @@ async def adding_item(message: Message):
                                  message_id=message.message_id)
         create_item(item_name, item_description, item_price, category_name)
         for i in values_list:
-            add_values_to_item(item_name, i, answer)
+            add_values_to_item(item_name, i, False)
         group_id = check_group()
         if group_id:
             try:
@@ -391,7 +391,7 @@ async def adding_item(message: Message):
         await bot.delete_message(chat_id=message.chat.id,
                                  message_id=message.message_id)
         create_item(item_name, item_description, item_price, category_name)
-        add_values_to_item(item_name, value, answer)
+        add_values_to_item(item_name, value, True)
         group_id = check_group()
         if group_id:
             try:
@@ -618,12 +618,12 @@ async def update_item_infinity(message: Message):
                              message_id=message.message_id)
     if change == 'make':
         delete_only_items(item_old_name)
-        add_values_to_item(item_old_name, msg, 'yes')
+        add_values_to_item(item_old_name, msg, False)
     elif change == 'deny':
         delete_only_items(item_old_name)
         values_list = msg.split(';')
         for i in values_list:
-            add_values_to_item(item_old_name, i, 'no')
+            add_values_to_item(item_old_name, i, False)
     TgConfig.STATE[user_id] = None
     update_item(item_old_name, item_new_name, item_description, price, category)
     await bot.edit_message_text(chat_id=message.chat.id,
@@ -673,6 +673,46 @@ async def delete_str_item(message: Message):
                 f'удалил позицию "{msg}"')
 
 
+async def show_bought_item_callback_handler(call: CallbackQuery):
+    bot, user_id = await get_bot_user_ids(call)
+    TgConfig.STATE[user_id] = 'show_item'
+    TgConfig.STATE[f'{user_id}_message_id'] = call.message.message_id
+    role = check_role(user_id)
+    if role >= Permission.SHOP_MANAGE:
+        await bot.edit_message_text('Введите уникальный ID операции',
+                                    chat_id=call.message.chat.id,
+                                    message_id=call.message.message_id,
+                                    reply_markup=back("goods_management"))
+        return
+    await call.answer('Недостаточно прав')
+
+
+async def process_item_show(message: Message):
+    bot, user_id = await get_bot_user_ids(message)
+    msg = message.text
+    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
+    TgConfig.STATE[user_id] = None
+    item = select_bought_item(msg)
+    await bot.delete_message(chat_id=message.chat.id,
+                             message_id=message.message_id)
+    if item:
+        await bot.edit_message_text(chat_id=message.chat.id,
+                                    message_id=message_id,
+                                    text=f'<b>Товар</b>: <code>{item["item_name"]}</code>\n'
+                                         f'<b>Цена</b>: <code>{item["price"]}</code>₽\n'
+                                         f'<b>Дата покупки</b>: <code>{item["bought_datetime"]}</code>\n'
+                                         f'<b>Покупатель</b>: <code>{item["buyer_id"]}</code>\n'
+                                         f'<b>Уникальный ID операции</b>: <code>{item["unique_id"]}</code>\n'
+                                         f'<b>Значение</b>:\n<code>{item["value"]}</code>',
+                                    parse_mode='HTML',
+                                    reply_markup=back('show_bought_item'))
+        return
+    await bot.edit_message_text(chat_id=message.chat.id,
+                                message_id=message_id,
+                                text='❌ Товар с указанным уникальным ID не найден',
+                                reply_markup=back('show_bought_item'))
+
+
 def register_shop_management(dp: Dispatcher) -> None:
     dp.register_callback_query_handler(statistics_callback_handler,
                                        lambda c: c.data == 'statistics')
@@ -686,6 +726,8 @@ def register_shop_management(dp: Dispatcher) -> None:
                                        lambda c: c.data == 'update_item')
     dp.register_callback_query_handler(delete_item_callback_handler,
                                        lambda c: c.data == 'delete_item')
+    dp.register_callback_query_handler(show_bought_item_callback_handler,
+                                       lambda c: c.data == 'show_bought_item')
     dp.register_callback_query_handler(shop_callback_handler,
                                        lambda c: c.data == 'shop_management')
     dp.register_callback_query_handler(logs_callback_handler,
@@ -725,6 +767,8 @@ def register_shop_management(dp: Dispatcher) -> None:
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'update_item_price')
     dp.register_message_handler(delete_str_item,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'process_removing_item')
+    dp.register_message_handler(process_item_show,
+                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'show_item')
     dp.register_message_handler(process_category_for_add,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'add_category')
     dp.register_message_handler(process_category_for_delete,

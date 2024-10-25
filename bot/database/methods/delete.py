@@ -1,17 +1,17 @@
 from bot.database.models import Database, Goods, ItemValues, Configuration, Categories, UnfinishedOperations
 
 
-def delete_item(item_name) -> None:
+def delete_item(item_name: str) -> None:
     Database().session.query(Goods).filter(Goods.name == item_name).delete()
     Database().session.query(ItemValues).filter(ItemValues.item_name == item_name).delete()
     Database().session.commit()
 
 
-def delete_only_items(item_name) -> None:
+def delete_only_items(item_name: str) -> None:
     Database().session.query(ItemValues).filter(ItemValues.item_name == item_name).delete()
 
 
-def delete_category(category_name) -> None:
+def delete_category(category_name: str) -> None:
     goods = Database().session.query(Goods.name).filter(Goods.category_name == category_name).all()
     for item in goods:
         Database().session.query(ItemValues).filter(ItemValues.item_name == item.name).delete()
@@ -20,12 +20,12 @@ def delete_category(category_name) -> None:
     Database().session.commit()
 
 
-def finish_operation(operation_id) -> None:
+def finish_operation(operation_id: str) -> None:
     Database().session.query(UnfinishedOperations).filter(UnfinishedOperations.operation_id == operation_id).delete()
     Database().session.commit()
 
 
-def buy_item(item_id, infinity=False) -> None:
+def buy_item(item_id: str, infinity: bool = False) -> None:
     if infinity is False:
         Database().session.query(ItemValues).filter(ItemValues.id == item_id).delete()
         Database().session.commit()
@@ -33,6 +33,6 @@ def buy_item(item_id, infinity=False) -> None:
         pass
 
 
-def delete_config(key) -> None:
+def delete_config(key: str) -> None:
     Database().session.query(Configuration).filter(Configuration.key == key).delete()
     Database().session.commit()

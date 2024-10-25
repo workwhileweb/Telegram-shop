@@ -1,3 +1,4 @@
+from typing import Union
 import sqlalchemy.exc
 import random
 from bot.database.models import User, ItemValues, Goods, Categories, Configuration, BoughtGoods, \
@@ -29,14 +30,14 @@ def create_item(item_name: str, item_description: str, item_price: int, category
     session.commit()
 
 
-def add_values_to_item(item_name: str, values, is_infinity) -> None:
+def add_values_to_item(item_name: str, value: str, is_infinity: bool) -> None:
     session = Database().session
-    if is_infinity != 'yes':
+    if is_infinity is False:
         session.add(
-            ItemValues(name=item_name, value=values, is_infinity=False))
+            ItemValues(name=item_name, value=value, is_infinity=False))
     else:
         session.add(
-            ItemValues(name=item_name, value=values, is_infinity=True))
+            ItemValues(name=item_name, value=value, is_infinity=True))
     session.commit()
 
 
@@ -47,7 +48,7 @@ def create_category(category_name: str) -> None:
     session.commit()
 
 
-def create_operation(user_id: int, value: int, operation_time) -> None:
+def create_operation(user_id: int, value: int, operation_time: str) -> None:
     session = Database().session
     session.add(
         Operations(user_id=user_id, operation_value=value, operation_time=operation_time))
@@ -62,7 +63,7 @@ def start_operation(user_id: int, value: int, operation_id: str) -> None:
 
 
 def add_bought_item(item_name: str, value: str, price: int, buyer_id: int,
-                    bought_time) -> None:
+                    bought_time: str) -> None:
     session = Database().session
     session.add(
         BoughtGoods(name=item_name, value=value, price=price, buyer_id=buyer_id, bought_datetime=bought_time,
@@ -70,7 +71,7 @@ def add_bought_item(item_name: str, value: str, price: int, buyer_id: int,
     session.commit()
 
 
-def create_config(key, value) -> None:
+def create_config(key: str, value: Union[int, str]) -> None:
     session = Database().session
     session.add(
         Configuration(key=key, value=value))
