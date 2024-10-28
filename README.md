@@ -10,18 +10,28 @@ this is a fairly simple template, but at the same time it is quite effective for
 - `/start` - needed to start the bot
 ### Menu
   the menu for the user looks like this (the administrator has an "admin panel" button in the menu):  
+
   ![](assets/menu_picture.png)  
+
   ![](assets/menu_as_admin_picture.png)
+
 ### Catalog
   The catalog consists of categories and positions. The user can buy goods from the positions, and the administrator can manage them  
   ![](assets/categories_picture.png)  
+
   ![](assets/positions_picture.png)  
+
   ![](assets/position_description_picture.png)
+
 ### Admin panel
 There are a couple of buttons in the admin panel to control all processes in the bot.
+
   ![](assets/admin_menu_picture.png)
+
   ![](assets/settings_menu_picture.png)
+
   ![](assets/shop_menu_picture.png)
+
   ![](assets/user_menu_picture.png)
 ### Other
   The bot has configured logging that reports errors or actions of administrators  
