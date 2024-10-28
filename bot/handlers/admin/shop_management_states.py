@@ -180,7 +180,7 @@ async def process_category_for_delete(message: Message):
                                 reply_markup=back('categories_management'))
     admin_info = await bot.get_chat(user_id)
     logger.info(f"Пользователь {user_id} ({admin_info.first_name}) "
-                f'удалил категорию "{category}"')
+                f'удалил категорию "{category["name"]}"')
 
 
 async def update_category_callback_handler(call: CallbackQuery):
@@ -679,7 +679,7 @@ async def show_bought_item_callback_handler(call: CallbackQuery):
     TgConfig.STATE[f'{user_id}_message_id'] = call.message.message_id
     role = check_role(user_id)
     if role >= Permission.SHOP_MANAGE:
-        await bot.edit_message_text('Введите уникальный ID операции',
+        await bot.edit_message_text('Введите уникальный ID купленного товара',
                                     chat_id=call.message.chat.id,
                                     message_id=call.message.message_id,
                                     reply_markup=back("goods_management"))

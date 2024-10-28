@@ -1,5 +1,4 @@
 import datetime
-from typing import List
 
 import sqlalchemy
 from sqlalchemy import exc, func
@@ -78,11 +77,11 @@ def get_all_users() -> list[tuple[int]]:
     return Database().session.query(User.telegram_id).all()
 
 
-def get_all_categories() -> List[str]:
+def get_all_categories() -> list[str]:
     return [category[0] for category in Database().session.query(Categories.name).all()]
 
 
-def get_all_items(category_name: str) -> List[str]:
+def get_all_items(category_name: str) -> list[str]:
     return [item[0] for item in
             Database().session.query(Goods.name).filter(Goods.category_name == category_name).all()]
 
@@ -102,7 +101,7 @@ def get_user_balance(telegram_id: int) -> float | None:
     return result[0] if result else None
 
 
-def get_all_admins() -> List[int]:
+def get_all_admins() -> list[int]:
     return [admin[0] for admin in Database().session.query(User.telegram_id).filter(User.role_id == 'ADMIN').all()]
 
 
@@ -142,7 +141,7 @@ def select_user_items(buyer_id: int) -> int:
     return Database().session.query(func.count()).filter(BoughtGoods.buyer_id == buyer_id).scalar()
 
 
-def select_bought_items(buyer_id: int) -> List[str]:
+def select_bought_items(buyer_id: int) -> list[str]:
     return Database().session.query(BoughtGoods).filter(BoughtGoods.buyer_id == buyer_id).all()
 
 
@@ -225,7 +224,7 @@ def select_users_balance() -> float:
     return Database().session.query(func.sum(User.balance)).scalar()
 
 
-def select_user_operations(user_id: int) -> List[float]:
+def select_user_operations(user_id: int) -> list[float]:
     return [operation[0] for operation in
             Database().session.query(Operations.operation_value).filter(Operations.user_id == user_id).all()]
 
@@ -240,7 +239,7 @@ def check_time() -> int | None:
     return result[0] if result else None
 
 
-def select_unfinished_operations(operation_id: str) -> List[int] | None:
+def select_unfinished_operations(operation_id: str) -> list[int] | None:
     try:
         return Database().session.query(UnfinishedOperations.operation_value).filter(
             UnfinishedOperations.operation_id == operation_id).one()
@@ -248,7 +247,7 @@ def select_unfinished_operations(operation_id: str) -> List[int] | None:
         return None
 
 
-def check_user_referrals(user_id: int) -> List[int]:
+def check_user_referrals(user_id: int) -> list[int]:
     return Database().session.query(User).filter(User.referral_id == user_id).count()
 
 

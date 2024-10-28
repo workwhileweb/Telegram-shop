@@ -1,4 +1,3 @@
-from typing import Union
 import sqlalchemy.exc
 import random
 from bot.database.models import User, ItemValues, Goods, Categories, Configuration, BoughtGoods, \
@@ -71,7 +70,7 @@ def add_bought_item(item_name: str, value: str, price: int, buyer_id: int,
     session.commit()
 
 
-def create_config(key: str, value: Union[int, str]) -> None:
+def create_config(key: str, value: int | str) -> None:
     session = Database().session
     session.add(
         Configuration(key=key, value=value))

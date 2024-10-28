@@ -58,7 +58,8 @@ def goods_list(list_items: list[str], category_name: str, current_index: int, ma
     return markup
 
 
-def user_items_list(list_items, data, back_data, pre_back, current_index, max_index) -> InlineKeyboardMarkup:
+def user_items_list(list_items: list, data: str, back_data: str, pre_back: str, current_index: int, max_index: int)\
+        -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup()
     page_items = list_items[current_index * 10: (current_index + 1) * 10]
     for item in page_items:
@@ -74,7 +75,7 @@ def user_items_list(list_items, data, back_data, pre_back, current_index, max_in
     return markup
 
 
-def item_info(item_name, category_name) -> InlineKeyboardMarkup:
+def item_info(item_name: str, category_name: str) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('💰 Купить', callback_data=f'buy_{item_name}')],
         [InlineKeyboardButton('🔙 Вернуться назад', callback_data=f'category_{category_name}')
@@ -83,7 +84,7 @@ def item_info(item_name, category_name) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def profile(user_items=0) -> InlineKeyboardMarkup:
+def profile(user_items: int = 0) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('💸 Пополнить баланс', callback_data='replenish_balance')
          ],
@@ -120,7 +121,8 @@ def console() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def user_management(admin_role, user_role, admin_manage, items, user_id) -> InlineKeyboardMarkup:
+def user_management(admin_role: int, user_role: int, admin_manage: int, items: int, user_id: int) \
+        -> InlineKeyboardMarkup:
     inline_keyboard = [
         [
             InlineKeyboardButton('💸 Пополнить баланс пользователя', callback_data=f'fill-user-balance_{user_id}')
@@ -139,7 +141,7 @@ def user_management(admin_role, user_role, admin_manage, items, user_id) -> Inli
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def user_manage_check(user_id) -> InlineKeyboardMarkup:
+def user_manage_check(user_id: int) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('✅ Да', callback_data=f'check-user_{user_id}')
          ],
@@ -210,7 +212,7 @@ def close() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def check_sub(channel_username) -> InlineKeyboardMarkup:
+def check_sub(channel_username: str) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('Подписаться', url=f'https://t.me/{channel_username}')
          ],
@@ -220,7 +222,7 @@ def check_sub(channel_username) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def back(callback) -> InlineKeyboardMarkup:
+def back(callback: str) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('🔙 Вернуться назад', callback_data=callback)
          ]
@@ -243,7 +245,7 @@ def setting() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def payment_menu(url, label) -> InlineKeyboardMarkup:
+def payment_menu(url: str, label: str) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('✅ Оплатить', url=url)
          ],
@@ -255,7 +257,7 @@ def payment_menu(url, label) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def reset_config(key) -> InlineKeyboardMarkup:
+def reset_config(key: str) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton(f'Сбросить {key}', callback_data=f'reset_{key}')
          ],
@@ -265,7 +267,7 @@ def reset_config(key) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def question_buttons(question, back_data) -> InlineKeyboardMarkup:
+def question_buttons(question: str, back_data: str) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('✅ Да', callback_data=f'{question}_yes'),
          InlineKeyboardButton('❌ Нет', callback_data=f'{question}_no')

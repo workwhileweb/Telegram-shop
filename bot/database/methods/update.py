@@ -1,4 +1,3 @@
-from typing import Union
 from bot.database.models import User, ItemValues, Goods, Categories, Configuration
 from bot.database import Database
 
@@ -9,7 +8,7 @@ def set_role(telegram_id: str, role: int) -> None:
     Database().session.commit()
 
 
-def update_balance(telegram_id: Union[int, str], summ: int) -> None:
+def update_balance(telegram_id: int | str, summ: int) -> None:
     old_balance = User.balance
     new_balance = old_balance + summ
     Database().session.query(User).filter(User.telegram_id == telegram_id).update(
@@ -36,7 +35,6 @@ def update_item(item_name: str, new_name: str, new_description: str, new_price: 
                 Goods.price: new_price,
                 Goods.category_name: new_category_name}
     )
-
     Database().session.commit()
 
 
@@ -48,6 +46,6 @@ def update_category(category_name: str, new_name: str) -> None:
     Database().session.commit()
 
 
-def update_config(key: str, value: Union[int, str]) -> None:
+def update_config(key: str, value: int | str) -> None:
     Database().session.query(Configuration).filter(Configuration.key == key).update(values={Configuration.value: value})
     Database().session.commit()

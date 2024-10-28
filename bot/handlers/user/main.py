@@ -251,7 +251,7 @@ async def bought_item_info_callback_handler(call: CallbackQuery):
         f'<b>Товар</b>: <code>{item["item_name"]}</code>\n'
         f'<b>Цена</b>: <code>{item["price"]}</code>₽\n'
         f'<b>Дата покупки</b>: <code>{item["bought_datetime"]}</code>\n'
-        f'<b>Уникальный ID операции</b>: <code>{item["unique_id"]}</code>\n'
+        f'<b>Уникальный ID</b>: <code>{item["unique_id"]}</code>\n'
         f'<b>Значение</b>:\n<code>{item["value"]}</code>',
         chat_id=call.message.chat.id,
         message_id=call.message.message_id,

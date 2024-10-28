@@ -79,6 +79,7 @@ class User(Database.BASE):
     registration_date = Column(VARCHAR, nullable=False)
     user_operations = relationship("Operations", back_populates="user_telegram_id")
     user_unfinished_operations = relationship("UnfinishedOperations", back_populates="user_telegram_id")
+    user_goods = relationship("BoughtGoods", back_populates="user_telegram_id")
 
     def __init__(self, telegram_id: int, registration_date: datetime.datetime, balance: int = 0,
                  referral_id=None, role_id: int = 1):
@@ -92,6 +93,7 @@ class User(Database.BASE):
 class Categories(Database.BASE):
     __tablename__ = 'categories'
     name = Column(String(100), primary_key=True, unique=True, nullable=False)
+    item = relationship("Goods", back_populates="category")
 
     def __init__(self, name: str):
         self.name = name
@@ -102,7 +104,9 @@ class Goods(Database.BASE):
     name = Column(String(100), nullable=False, unique=True, primary_key=True)
     price = Column(BigInteger, nullable=False)
     description = Column(Text, nullable=False)
-    category_name = Column(String(100), nullable=False)
+    category_name = Column(String(100), ForeignKey('categories.name'), nullable=False)
+    category = relationship("Categories", back_populates="item")
+    values = relationship("ItemValues", back_populates="item")
 
     def __init__(self, name: str, price: int, description: str, category_name: str):
         self.name = name
@@ -114,9 +118,10 @@ class Goods(Database.BASE):
 class ItemValues(Database.BASE):
     __tablename__ = 'item_values'
     id = Column(Integer, nullable=False, primary_key=True)
-    item_name = Column(String(100), nullable=False)
+    item_name = Column(String(100), ForeignKey('goods.name'), nullable=False)
     value = Column(Text, nullable=True)
     is_infinity = Column(Boolean, nullable=False)
+    item = relationship("Goods", back_populates="values")
 
     def __init__(self, name: str, value: str, is_infinity: bool):
         self.item_name = name
@@ -130,9 +135,10 @@ class BoughtGoods(Database.BASE):
     item_name = Column(String(100), nullable=False)
     value = Column(Text, nullable=False)
     price = Column(BigInteger, nullable=False)
-    buyer_id = Column(BigInteger, nullable=False, default=0)
+    buyer_id = Column(BigInteger, ForeignKey('users.telegram_id'), nullable=False)
     bought_datetime = Column(VARCHAR, nullable=False)
     unique_id = Column(BigInteger, nullable=False, unique=True)
+    user_telegram_id = relationship("User", back_populates="user_goods")
 
     def __init__(self, name: str, value: str, price: int, bought_datetime: str, unique_id,
                  buyer_id: int = 0):
