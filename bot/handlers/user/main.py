@@ -11,7 +11,7 @@ from bot.database.methods import select_max_role_id, create_user, check_channel,
     select_item_values_amount, get_user_balance, get_item_value, buy_item, add_bought_item, buy_item_for_balance, \
     select_user_operations, select_user_items, check_user_referrals, check_rules, start_operation, \
     select_unfinished_operations, get_user_referral, finish_operation, update_balance, create_operation, \
-    bought_items_list, check_value, check_time
+    bought_items_list, check_value, check_time, check_referral
 from bot.handlers.other import get_bot_user_ids, check_sub_channel, get_bot_info
 from bot.keyboards import check_sub, main_menu, categories_list, goods_list, user_items_list, back, item_info, \
     profile, rules, payment_menu, close
@@ -34,18 +34,16 @@ async def start(message: Message):
     referral_id = message.text[7:] if message.text[7:] != str(user_id) else None
     user_role = owner if str(user_id) == EnvKeys.OWNER_ID else 1
     create_user(telegram_id=user_id, registration_date=formatted_time, referral_id=referral_id, role=user_role)
-    chat = check_channel()
+    chat = check_channel()[13:]
     role_data = check_role(user_id)
 
     try:
         if chat is not None:
-            parsed_url = urlparse(chat)
-            channel_username = parsed_url.path.lstrip('/')
-            chat_member = await bot.get_chat_member(chat_id='@' + channel_username, user_id=user_id)
+            chat_member = await bot.get_chat_member(chat_id=f'@{chat}', user_id=user_id)
             if not await check_sub_channel(chat_member):
                 await bot.send_message(user_id,
                                        'Для начала подпишитесь на новостной канал',
-                                       reply_markup=check_sub(channel_username))
+                                       reply_markup=check_sub(chat))
                 await bot.delete_message(chat_id=message.chat.id,
                                          message_id=message.message_id)
                 return
@@ -288,13 +286,14 @@ async def profile_callback_handler(call: CallbackQuery):
             overall_balance += i
 
     items = select_user_items(user_id)
+    referral = check_referral() if check_referral() else 5
     await bot.edit_message_text(text=f"👤 <b>Профиль</b> — {user.first_name}\n🆔"
                                      f" <b>ID</b> — <code>{user_id}</code>\n"
                                      f"💳 <b>Баланс</b> — <code>{balance}</code> ₽\n"
                                      f"💵 <b>Всего пополнено</b> — <code>{overall_balance}</code> ₽\n"
                                      f" 🎁 <b>Куплено товаров</b> — {items} шт",
                                 chat_id=call.message.chat.id,
-                                message_id=call.message.message_id, reply_markup=profile(items),
+                                message_id=call.message.message_id, reply_markup=profile(referral, items),
                                 parse_mode='HTML')
 
 
@@ -302,12 +301,13 @@ async def referral_callback_handler(call: CallbackQuery):
     bot, user_id = await get_bot_user_ids(call)
     TgConfig.STATE[user_id] = None
     referrals = check_user_referrals(user_id)
+    referral_percent = check_referral() if check_referral() else 5
     await bot.edit_message_text(f'💚 Реферальная система\n'
                                 f'🔗 Ссылка: https://t.me/{await get_bot_info(call)}?start={user_id}\n'
                                 f'Количество рефералов: {referrals}\n'
                                 f'📔 Реферальная система позволит Вам заработать деньги без всяких вложений. '
                                 f'Необходимо всего лишь распространять свою реферальную ссылку и Вы будете получать'
-                                f' пожизненно 5% от суммы пополнений Ваших рефералов на Ваш баланс бота.',
+                                f' {referral_percent}% от суммы пополнений Ваших рефералов на Ваш баланс бота.',
                                 chat_id=call.message.chat.id,
                                 message_id=call.message.message_id,
                                 reply_markup=back('profile'))
@@ -380,8 +380,9 @@ async def checking_payment(call: CallbackQuery):
             referral_id = get_user_referral(user_id)
             finish_operation(label)
 
-            if referral_id:
-                referral_operation = round(0.05 * operation_value)
+            if referral_id and check_referral() != 0:
+                referral_percent = check_referral() if check_referral() else 0.05
+                referral_operation = round(referral_percent * operation_value)
                 update_balance(referral_id, referral_operation)
                 await bot.send_message(referral_id,
                                        f'✅ Вы получили {referral_operation}₽ '

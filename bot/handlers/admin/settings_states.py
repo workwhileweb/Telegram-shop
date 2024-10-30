@@ -4,7 +4,7 @@ from aiogram.types import Message, CallbackQuery
 from bot.database.models import Permission
 from bot.keyboards import setting, back, reset_config
 from bot.database.methods import check_role, delete_config, check_channel, update_config, create_config, check_helper, \
-    check_rules, check_group, check_time
+    check_rules, check_group, check_time, check_referral
 from bot.misc import TgConfig
 from bot.logger_mesh import logger
 from bot.handlers.other import get_bot_user_ids
@@ -51,7 +51,7 @@ async def upd_channel_callback_handler(call: CallbackQuery):
     role = check_role(user_id)
     if role >= Permission.SETTINGS_MANAGE:
         await bot.edit_message_text(
-            'Введите ссылку на канал для добавления\nНапример <s>https://t.me/</s> <u>1a2b3c4d5e6f7g8h</u>\n'
+            'Введите ссылку на канал для добавления\nНапример https://t.me/1a2b3c4d5e6f7g8h\n'
             'Перед этим назначьте бота администратором канала, бот будет проверять, '
             'подписан ли пользователь на данный канал',
             chat_id=call.message.chat.id,
@@ -241,6 +241,55 @@ async def process_group_for_upd(message: Message):
     logger.info(f"Группа была обновлена пользователем {user_id} ({user_info.first_name})")
 
 
+async def upd_referral_callback_handler(call: CallbackQuery):
+    bot, user_id = await get_bot_user_ids(call)
+    TgConfig.STATE[f'{user_id}_message_id'] = call.message.message_id
+    TgConfig.STATE[user_id] = 'upd_referral'
+    referral_percent = check_referral()
+    if referral_percent:
+        keyboard = reset_config('referral_percent')
+    else:
+        keyboard = back("settings")
+    role = check_role(user_id)
+    if role >= Permission.SETTINGS_MANAGE:
+        await bot.edit_message_text(
+            'Введите процент, который получит пользователь от пополнения баланса реферала. На данный момент '
+            f'это <code>{5 if not referral_percent else referral_percent}</code>% от пополнения\n'
+            'Если хотите убрать реферальную систему, введите 0 ',
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            parse_mode='HTML',
+            reply_markup=keyboard)
+        return
+    await call.answer('Недостаточно прав')
+
+
+async def process_referral_for_upd(message: Message):
+    bot, user_id = await get_bot_user_ids(message)
+    TgConfig.STATE[user_id] = None
+    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
+    await bot.delete_message(chat_id=message.chat.id,
+                             message_id=message.message_id)
+    if not message.text.isdigit():
+        await bot.edit_message_text(chat_id=message.chat.id,
+                                    message_id=message_id,
+                                    text="❌ Неверный процент. "
+                                         "процент должен быть числом",
+                                    reply_markup=back('settings'))
+        return
+    if check_referral():
+        update_config('referral_percent', message.text)
+    else:
+        create_config('referral_percent', message.text)
+    await bot.edit_message_text(chat_id=message.chat.id,
+                                message_id=message_id,
+                                text='✅ Реферальная система обновлена',
+                                reply_markup=back("settings"))
+    user_info = await bot.get_chat(user_id)
+    logger.info(f"Реферальная система была обновлена пользователем {user_id} ({user_info.first_name})")
+    return
+
+
 def register_settings(dp: Dispatcher) -> None:
     dp.register_callback_query_handler(settings_callback_handler,
                                        lambda c: c.data == 'settings')
@@ -254,6 +303,8 @@ def register_settings(dp: Dispatcher) -> None:
                                        lambda c: c.data == 'rules_data')
     dp.register_callback_query_handler(upd_group_callback_handler,
                                        lambda c: c.data == 'group_data')
+    dp.register_callback_query_handler(upd_referral_callback_handler,
+                                       lambda c: c.data == 'referral_data')
 
     dp.register_message_handler(process_channel_for_upd,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'upd_channel')
@@ -265,6 +316,8 @@ def register_settings(dp: Dispatcher) -> None:
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'upd_rules')
     dp.register_message_handler(process_group_for_upd,
                                 lambda c: TgConfig.STATE.get(c.from_user.id) == 'upd_group')
+    dp.register_message_handler(process_referral_for_upd,
+                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'upd_referral')
 
     dp.register_callback_query_handler(reset_config_callback_handler,
                                        lambda c: c.data.startswith('reset_'))

@@ -73,6 +73,13 @@ def check_rules() -> str | None:
         return None
 
 
+def check_referral() -> int | None:
+    try:
+        return Database().session.query(Configuration.value).filter(Configuration.key == 'referral_percent').scalar()
+    except exc.NoResultFound:
+        return None
+
+
 def get_all_users() -> list[tuple[int]]:
     return Database().session.query(User.telegram_id).all()
 

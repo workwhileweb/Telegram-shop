@@ -84,13 +84,13 @@ def item_info(item_name: str, category_name: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def profile(user_items: int = 0) -> InlineKeyboardMarkup:
+def profile(referral_percent: int, user_items: int = 0) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('💸 Пополнить баланс', callback_data='replenish_balance')
-         ],
-        [InlineKeyboardButton('🎲 Реферальная система', callback_data='referral_system')
          ]
     ]
+    if referral_percent != 0:
+        inline_keyboard.append([InlineKeyboardButton('🎲 Реферальная система', callback_data='referral_system')])
     if user_items != 0:
         inline_keyboard.append([InlineKeyboardButton('🎁 Купленные товары', callback_data='bought_items')])
     inline_keyboard.append([InlineKeyboardButton('🔙 Вернуться в меню', callback_data='back_to_menu')])
@@ -237,7 +237,8 @@ def setting() -> InlineKeyboardMarkup:
          ],
         [InlineKeyboardButton('ℹ️ Изменить канал', callback_data='channel_data'),
          InlineKeyboardButton('ℹ️ Изменить группу', callback_data='group_data')],
-        [InlineKeyboardButton('⏳ Изменить время оплаты', callback_data='time_data')
+        [InlineKeyboardButton('⏳ Изменить время оплаты', callback_data='time_data'),
+         InlineKeyboardButton('💚 Изменить реферальную систему', callback_data='referral_data')
          ],
         [InlineKeyboardButton('🔙 Вернуться назад', callback_data='console')
          ]
