@@ -34,7 +34,7 @@ async def start(message: Message):
     referral_id = message.text[7:] if message.text[7:] != str(user_id) else None
     user_role = owner if str(user_id) == EnvKeys.OWNER_ID else 1
     create_user(telegram_id=user_id, registration_date=formatted_time, referral_id=referral_id, role=user_role)
-    chat = check_channel()[13:]
+    chat = check_channel()[13:] if check_channel() else None
     role_data = check_role(user_id)
 
     try:
