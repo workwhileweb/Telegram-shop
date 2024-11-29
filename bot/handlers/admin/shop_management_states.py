@@ -8,7 +8,7 @@ from aiogram.utils.exceptions import ChatNotFound
 from bot.database.methods import check_role, select_today_users, select_admins, get_user_count, select_today_orders, \
     select_all_orders, select_today_operations, select_users_balance, select_all_operations, select_count_items, \
     select_count_goods, select_count_categories, select_count_bought_items, check_category, create_category, \
-    delete_category, update_category, check_item, create_item, add_values_to_item, check_group, update_item, \
+    delete_category, update_category, check_item, create_item, add_values_to_item, update_item, \
     delete_item, check_value, delete_only_items, select_bought_item
 from bot.database.models import Permission
 from bot.handlers.other import get_bot_user_ids
@@ -369,7 +369,7 @@ async def adding_item(message: Message):
         create_item(item_name, item_description, item_price, category_name)
         for i in values_list:
             add_values_to_item(item_name, i, False)
-        group_id = check_group()
+        group_id = TgConfig.GROUP_ID if TgConfig.GROUP_ID != -988765433 else None
         if group_id:
             try:
                 await bot.send_message(chat_id=group_id,
@@ -392,7 +392,7 @@ async def adding_item(message: Message):
                                  message_id=message.message_id)
         create_item(item_name, item_description, item_price, category_name)
         add_values_to_item(item_name, value, True)
-        group_id = check_group()
+        group_id = TgConfig.GROUP_ID if TgConfig.GROUP_ID != -988765433 else None
         if group_id:
             try:
                 await bot.send_message(chat_id=group_id,
@@ -462,7 +462,7 @@ async def updating_item_amount(message: Message):
                              message_id=message.message_id)
     for i in values_list:
         add_values_to_item(item_name, i, False)
-    group_id = check_group()
+    group_id = TgConfig.GROUP_ID if TgConfig.GROUP_ID != -988765433 else None
     if group_id:
         try:
             await bot.send_message(chat_id=group_id,

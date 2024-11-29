@@ -1,4 +1,4 @@
-from bot.database.models import Database, Goods, ItemValues, Configuration, Categories, UnfinishedOperations
+from bot.database.models import Database, Goods, ItemValues, Categories, UnfinishedOperations
 
 
 def delete_item(item_name: str) -> None:
@@ -31,8 +31,3 @@ def buy_item(item_id: str, infinity: bool = False) -> None:
         Database().session.commit()
     else:
         pass
-
-
-def delete_config(key: str) -> None:
-    Database().session.query(Configuration).filter(Configuration.key == key).delete()
-    Database().session.commit()

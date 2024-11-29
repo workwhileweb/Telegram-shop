@@ -1,4 +1,4 @@
-from bot.database.models import User, ItemValues, Goods, Categories, Configuration
+from bot.database.models import User, ItemValues, Goods, Categories
 from bot.database import Database
 
 
@@ -43,9 +43,4 @@ def update_category(category_name: str, new_name: str) -> None:
         values={Goods.category_name: new_name})
     Database().session.query(Categories).filter(Categories.name == category_name).update(
         values={Categories.name: new_name})
-    Database().session.commit()
-
-
-def update_config(key: str, value: int | str) -> None:
-    Database().session.query(Configuration).filter(Configuration.key == key).update(values={Configuration.value: value})
     Database().session.commit()

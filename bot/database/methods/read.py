@@ -3,7 +3,7 @@ import datetime
 import sqlalchemy
 from sqlalchemy import exc, func
 
-from bot.database.models import Database, User, ItemValues, Goods, Categories, Configuration, Role, BoughtGoods, \
+from bot.database.models import Database, User, ItemValues, Goods, Categories, Role, BoughtGoods, \
     Operations, UnfinishedOperations
 
 
@@ -48,34 +48,6 @@ def get_user_count() -> int:
 def select_admins() -> int | None:
     try:
         return Database().session.query(func.count()).filter(User.role_id > 1).scalar()
-    except exc.NoResultFound:
-        return None
-
-
-def check_channel() -> User | None:
-    try:
-        return Database().session.query(Configuration.value).filter(Configuration.key == 'channel').scalar()
-    except exc.NoResultFound:
-        return None
-
-
-def check_helper() -> str | None:
-    try:
-        return Database().session.query(Configuration.value).filter(Configuration.key == 'helper').scalar()
-    except exc.NoResultFound:
-        return None
-
-
-def check_rules() -> str | None:
-    try:
-        return Database().session.query(Configuration.value).filter(Configuration.key == 'rules').scalar()
-    except exc.NoResultFound:
-        return None
-
-
-def check_referral() -> int | None:
-    try:
-        return Database().session.query(Configuration.value).filter(Configuration.key == 'referral_percent').scalar()
     except exc.NoResultFound:
         return None
 
@@ -234,16 +206,6 @@ def select_users_balance() -> float:
 def select_user_operations(user_id: int) -> list[float]:
     return [operation[0] for operation in
             Database().session.query(Operations.operation_value).filter(Operations.user_id == user_id).all()]
-
-
-def check_group() -> int | None:
-    result = Database().session.query(Configuration.value).filter(Configuration.key == 'group_id').first()
-    return result[0] if result else None
-
-
-def check_time() -> int | None:
-    result = Database().session.query(Configuration.value).filter(Configuration.key == 'time').first()
-    return result[0] if result else None
 
 
 def select_unfinished_operations(operation_id: str) -> list[int] | None:

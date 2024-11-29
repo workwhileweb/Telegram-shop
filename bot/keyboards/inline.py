@@ -107,8 +107,6 @@ def rules() -> InlineKeyboardMarkup:
 
 def console() -> InlineKeyboardMarkup:
     inline_keyboard = [
-        [InlineKeyboardButton('⚙️ Управление настройками', callback_data='settings')
-         ],
         [InlineKeyboardButton('🏪 Управление магазином', callback_data='shop_management')
          ],
         [InlineKeyboardButton('👥 Управление пользователями', callback_data='user_management')
@@ -225,22 +223,6 @@ def check_sub(channel_username: str) -> InlineKeyboardMarkup:
 def back(callback: str) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('🔙 Вернуться назад', callback_data=callback)
-         ]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
-
-
-def setting() -> InlineKeyboardMarkup:
-    inline_keyboard = [
-        [InlineKeyboardButton('🆘 Изменить саппорта', callback_data='helper_data'),
-         InlineKeyboardButton('📜 Изменить правила', callback_data='rules_data')
-         ],
-        [InlineKeyboardButton('ℹ️ Изменить канал', callback_data='channel_data'),
-         InlineKeyboardButton('ℹ️ Изменить группу', callback_data='group_data')],
-        [InlineKeyboardButton('⏳ Изменить время оплаты', callback_data='time_data'),
-         InlineKeyboardButton('💚 Изменить реферальную систему', callback_data='referral_data')
-         ],
-        [InlineKeyboardButton('🔙 Вернуться назад', callback_data='console')
          ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)

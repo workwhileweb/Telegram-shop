@@ -28,8 +28,6 @@ There are a couple of buttons in the admin panel to control all processes in the
 
   ![](assets/admin_menu_picture.png)
 
-  ![](assets/settings_menu_picture.png)
-
   ![](assets/shop_menu_picture.png)
 
   ![](assets/user_menu_picture.png)

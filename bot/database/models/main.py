@@ -178,16 +178,6 @@ class UnfinishedOperations(Database.BASE):
         self.operation_id = operation_id
 
 
-class Configuration(Database.BASE):
-    __tablename__ = 'configuration'
-    key = Column(String(50), primary_key=True)
-    value = Column(Text)
-
-    def __init__(self, key: str, value: str):
-        self.key = key
-        self.value = value
-
-
 def register_models():
     Database.BASE.metadata.create_all(Database().engine)
     Role.insert_roles()

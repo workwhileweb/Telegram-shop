@@ -1,6 +1,6 @@
 import sqlalchemy.exc
 import random
-from bot.database.models import User, ItemValues, Goods, Categories, Configuration, BoughtGoods, \
+from bot.database.models import User, ItemValues, Goods, Categories, BoughtGoods, \
     Operations, UnfinishedOperations
 from bot.database import Database
 
@@ -67,11 +67,4 @@ def add_bought_item(item_name: str, value: str, price: int, buyer_id: int,
     session.add(
         BoughtGoods(name=item_name, value=value, price=price, buyer_id=buyer_id, bought_datetime=bought_time,
                     unique_id=str(random.randint(1000000000, 9999999999))))
-    session.commit()
-
-
-def create_config(key: str, value: int | str) -> None:
-    session = Database().session
-    session.add(
-        Configuration(key=key, value=value))
     session.commit()
