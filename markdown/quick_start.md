@@ -17,7 +17,7 @@
       - CHANNEL_URL - telegram channel link (to disable, set `CHANNEL_URL: Final = 'https://t.me/'`)
       - HELPER_URL -  telegram username for help (to disable, set `HELPER_URL: Final = None`)
       - [GROUP_ID](https://docs.b2core.b2broker.com/how-to-articles/manage-communication-platforms/how-to-get-telegram-chat-group-and-channel-identifiers) -  telegram group ID (to disable, set `GROUP_ID: Final = None`)
-      - REFERRAL_PERCENT - percentage of the referral deposit (to disable the referral system, set `REFERRAL_PERCENT = 5`)
+      - REFERRAL_PERCENT - percentage of the referral deposit (to disable the referral system, set `REFERRAL_PERCENT = 0`)
       - PAYMENT_TIME - time allotted for payment
       - RULES - rules for using the bot (to disable, set `RULES: Final = None`)
 
