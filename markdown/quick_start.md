@@ -14,17 +14,18 @@
       - [ACCOUNT_NUMBER](https://pypi.org/project/YooMoney/#account-information)
 
    5. [Setup config.py](../bot/misc/config.py)
-      - CHANNEL_URL - telegram channel link (https://t.me/your_channel)
-      - HELPER_URL -  telegram username (@username) for help
-      - [GROUP_ID](https://docs.b2core.b2broker.com/how-to-articles/manage-communication-platforms/how-to-get-telegram-chat-group-and-channel-identifiers) -  telegram group ID
-      - REFERRAL_PERCENT - percentage of the referral deposit (to disable the referral system, enter 0)
+      - CHANNEL_URL - telegram channel link (to disable, set `CHANNEL_URL: Final = 'https://t.me/'`)
+      - HELPER_URL -  telegram username for help (to disable, set `HELPER_URL: Final = None`)
+      - [GROUP_ID](https://docs.b2core.b2broker.com/how-to-articles/manage-communication-platforms/how-to-get-telegram-chat-group-and-channel-identifiers) -  telegram group ID (to disable, set `GROUP_ID: Final = None`)
+      - REFERRAL_PERCENT - percentage of the referral deposit (to disable the referral system, set `REFERRAL_PERCENT = 5`)
       - PAYMENT_TIME - time allotted for payment
-      - RULES - rules for using the bot
+      - RULES - rules for using the bot (to disable, set `RULES: Final = None`)
 
    6. Run run.py
 
 ### P.S.
-to apply latest migration, use 
+1. Add the bot to the channel and group you have provided and make it an admin
+2. To apply latest migration, use 
       ```
       alembic upgrade head
       ```

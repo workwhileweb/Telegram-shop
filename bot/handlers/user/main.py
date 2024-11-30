@@ -262,7 +262,7 @@ async def bought_item_info_callback_handler(call: CallbackQuery):
 async def rules_callback_handler(call: CallbackQuery):
     bot, user_id = await get_bot_user_ids(call)
     TgConfig.STATE[user_id] = None
-    rules_data = TgConfig.RULES()
+    rules_data = TgConfig.RULES
 
     if rules_data:
         await bot.edit_message_text(rules_data, chat_id=call.message.chat.id,

@@ -369,7 +369,7 @@ async def adding_item(message: Message):
         create_item(item_name, item_description, item_price, category_name)
         for i in values_list:
             add_values_to_item(item_name, i, False)
-        group_id = TgConfig.GROUP_ID if TgConfig.GROUP_ID != -988765433 else None
+        group_id = TgConfig.GROUP_ID
         if group_id:
             try:
                 await bot.send_message(chat_id=group_id,
