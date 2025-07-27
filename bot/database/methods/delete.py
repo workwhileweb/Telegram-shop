@@ -7,8 +7,14 @@ def delete_item(item_name: str) -> None:
     Database().session.commit()
 
 
+def delete_item_from_position(item_id: int) -> None:
+    Database().session.query(ItemValues).filter(ItemValues.id == item_id).delete()
+    Database().session.commit()
+
+
 def delete_only_items(item_name: str) -> None:
     Database().session.query(ItemValues).filter(ItemValues.item_name == item_name).delete()
+    Database().session.commit()
 
 
 def delete_category(category_name: str) -> None:

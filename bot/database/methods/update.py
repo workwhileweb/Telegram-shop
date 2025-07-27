@@ -9,20 +9,23 @@ def set_role(telegram_id: str, role: int) -> None:
 
 
 def update_balance(telegram_id: int | str, summ: int) -> None:
-    old_balance = User.balance
-    new_balance = old_balance + summ
     Database().session.query(User).filter(User.telegram_id == telegram_id).update(
-        values={User.balance: new_balance})
+        {User.balance: User.balance + summ}
+    )
     Database().session.commit()
 
 
 def buy_item_for_balance(telegram_id: str, summ: int) -> int:
-    old_balance = User.balance
-    new_balance = old_balance - summ
     Database().session.query(User).filter(User.telegram_id == telegram_id).update(
-        values={User.balance: new_balance})
+        {User.balance: User.balance - summ}
+    )
     Database().session.commit()
-    return Database().session.query(User.balance).filter(User.telegram_id == telegram_id).one()[0]
+    return (
+        Database()
+        .session.query(User.balance)
+        .filter(User.telegram_id == telegram_id)
+        .one()[0]
+    )
 
 
 def update_item(item_name: str, new_name: str, new_description: str, new_price: int, new_category_name: str) -> None:

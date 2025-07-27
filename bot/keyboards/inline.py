@@ -58,6 +58,22 @@ def goods_list(list_items: list[str], category_name: str, current_index: int, ma
     return markup
 
 
+def goods_in_item_list(list_items: list[int], item_name: str, current_index: int, max_index: int) -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup()
+    page_items = list_items[current_index * 10: (current_index + 1) * 10]
+    for name in page_items:
+        markup.add(InlineKeyboardButton(text=f'{name}', callback_data=f'show-item_{name}_{item_name}_goods-in-item-page_{item_name}_{current_index}'))
+    if max_index > 0:
+        buttons = [
+            InlineKeyboardButton(text='◀️', callback_data=f'goods-in-item-page_{item_name}_{current_index - 1}'),
+            InlineKeyboardButton(text=f'{current_index + 1}/{max_index + 1}', callback_data='dummy_button'),
+            InlineKeyboardButton(text='▶️', callback_data=f'goods-in-item-page_{item_name}_{current_index + 1}')
+        ]
+        markup.row(*buttons)
+    markup.add(InlineKeyboardButton('🔙 Вернуться назад', callback_data='show__items_in_position'))
+    return markup
+
+
 def user_items_list(list_items: list, data: str, back_data: str, pre_back: str, current_index: int, max_index: int)\
         -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup()
@@ -173,6 +189,8 @@ def goods_management() -> InlineKeyboardMarkup:
          ],
         [InlineKeyboardButton('Посмотреть информацию о купленном товаре', callback_data='show_bought_item')
          ],
+        [InlineKeyboardButton('Посмотреть товары в позиции', callback_data='show__items_in_position')
+         ],
         [InlineKeyboardButton('🔙 Вернуться назад', callback_data='shop_management')
          ]
     ]
@@ -259,3 +277,47 @@ def question_buttons(question: str, back_data: str) -> InlineKeyboardMarkup:
          ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+
+
+def users_list(list_items: list[int], current_index: int, max_index: int, role:str="users") -> InlineKeyboardMarkup:
+    markup = InlineKeyboardMarkup()
+    page_items = list_items[current_index * 10: (current_index + 1) * 10]
+    for user_id in page_items:
+        markup.add(InlineKeyboardButton(text=str(user_id), callback_data=f'show-user_{role}_list-{user_id}'))
+    if max_index > 0:
+        buttons = [
+            InlineKeyboardButton(text='◀️', callback_data=f'{role}-page_{current_index - 1}'),
+            InlineKeyboardButton(text=f'{current_index + 1}/{max_index + 1}', callback_data='dummy_button'),
+            InlineKeyboardButton(text='▶️', callback_data=f'{role}-page_{current_index + 1}')
+        ]
+        markup.row(*buttons)
+    markup.add(InlineKeyboardButton('🔙 Вернуться назад', callback_data='statistics'))
+    return markup
+
+
+def statistic_buttons() -> InlineKeyboardMarkup:
+    inline_keyboard = [
+        [InlineKeyboardButton('Пользователи', callback_data='users_list')
+         ],
+        [InlineKeyboardButton('👮 Администраторы', callback_data='admins_list')
+         ],
+        [InlineKeyboardButton('🔙 Вернуться назад', callback_data='shop_management')
+         ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+
+
+def goods_adding(go_data, back_data) -> InlineKeyboardMarkup:
+    inline_keyboard = [
+        [InlineKeyboardButton('Добавить указанные товары', callback_data=go_data)
+         ],
+        [InlineKeyboardButton('🔙 Вернуться назад', callback_data=back_data)
+         ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+
+def delete_question(item_id, back_data) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton('Удалить товар', callback_data=f'delete-item-from-position_{item_id}_{back_data}')],
+        [InlineKeyboardButton('🔙 Вернуться назад', callback_data=back_data)]
+    ])

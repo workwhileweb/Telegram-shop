@@ -14,7 +14,7 @@ def check_user(telegram_id: int) -> User | None:
         return None
 
 
-def check_role(telegram_id: int) -> User | None:
+def check_role(telegram_id: int) -> int | None:
     role_id = Database().session.query(User.role_id).filter(User.telegram_id == telegram_id).one()[0]
     return Database().session.query(Role.permissions).filter(Role.id == role_id).one()[0]
 
@@ -65,6 +65,11 @@ def get_all_items(category_name: str) -> list[str]:
             Database().session.query(Goods.name).filter(Goods.category_name == category_name).all()]
 
 
+def select_items(item_name: str) -> list[int]:
+    return [item[0] for item in
+            Database().session.query(ItemValues.id).join(Goods).filter(Goods.name == item_name).all()]
+
+
 def get_bought_item_info(item_id: str) -> dict | None:
     result = Database().session.query(BoughtGoods).filter(BoughtGoods.id == item_id).first()
     return result.__dict__ if result else None
@@ -75,13 +80,18 @@ def get_item_info(item_name: str) -> dict | None:
     return result.__dict__ if result else None
 
 
+def get_goods_info(item_id: str) -> dict | None:
+    result = Database().session.query(ItemValues).filter(ItemValues.id == item_id).first()
+    return result.__dict__ if result else None
+
+
 def get_user_balance(telegram_id: int) -> float | None:
     result = Database().session.query(User.balance).filter(User.telegram_id == telegram_id).first()
     return result[0] if result else None
 
 
 def get_all_admins() -> list[int]:
-    return [admin[0] for admin in Database().session.query(User.telegram_id).filter(User.role_id == 'ADMIN').all()]
+    return [admin[0] for admin in Database().session.query(User.telegram_id).join(Role).filter(Role.name == 'ADMIN').all()]
 
 
 def check_item(item_name: str) -> dict | None:
