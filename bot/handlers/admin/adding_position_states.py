@@ -2,11 +2,10 @@ from aiogram import Dispatcher
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.exceptions import ChatNotFound
 
-from bot.database.methods import check_role, check_category, check_item, create_item, add_values_to_item, \
-    update_item, delete_item, check_value, delete_only_items
+from bot.database.methods import check_role, check_category, check_item, create_item, add_values_to_item
 from bot.database.models import Permission
 from bot.handlers.other import get_bot_user_ids
-from bot.keyboards import goods_management, back, item_management, question_buttons, goods_adding
+from bot.keyboards import back, question_buttons, goods_adding
 from bot.logger_mesh import logger
 from bot.misc import TgConfig
 

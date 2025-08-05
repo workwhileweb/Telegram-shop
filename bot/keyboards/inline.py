@@ -246,11 +246,11 @@ def back(callback: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
 
 
-def payment_menu(url: str, label: str) -> InlineKeyboardMarkup:
+def payment_menu(url: str) -> InlineKeyboardMarkup:
     inline_keyboard = [
         [InlineKeyboardButton('✅ Оплатить', url=url)
          ],
-        [InlineKeyboardButton('🔄 Проверить оплату', callback_data=f'check_{label}')
+        [InlineKeyboardButton('🔄 Проверить оплату', callback_data='check')
          ],
         [InlineKeyboardButton('🔙 Вернуться назад', callback_data='replenish_balance')
          ]
@@ -321,3 +321,15 @@ def delete_question(item_id, back_data) -> InlineKeyboardMarkup:
         [InlineKeyboardButton('Удалить товар', callback_data=f'delete-item-from-position_{item_id}_{back_data}')],
         [InlineKeyboardButton('🔙 Вернуться назад', callback_data=back_data)]
     ])
+
+
+def get_payment_choice():
+    inline_keyboard = [
+        [InlineKeyboardButton(text="YooMoney", callback_data="pay_yoomoney")
+         ],
+        [InlineKeyboardButton(text="Crypto Bot", callback_data="pay_cryptopay")
+         ],
+        [InlineKeyboardButton(text="🔙 Вернуться назад", callback_data="replenish_balance")
+         ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
