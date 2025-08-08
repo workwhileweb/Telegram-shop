@@ -35,10 +35,10 @@ There are a couple of buttons in the admin panel to control all processes in the
   The bot has configured logging that reports errors or actions of administrators  
 ## Tech Stack 💻
 - #### Languages:
-  - Python 3.10
+  - Python 3.10 or above
 
 - #### Telegram:
-    - Aiogram
+    - Aiogram3
 
 - #### Database:
     - SQLite3
@@ -46,6 +46,7 @@ There are a couple of buttons in the admin panel to control all processes in the
 
 - #### Payment:
     - Yoomoney
+    - Crypto Bot
 
 - #### Debug:
     - logger
