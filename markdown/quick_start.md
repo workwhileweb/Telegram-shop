@@ -13,6 +13,8 @@
       - [ACCESS_TOKEN](https://pypi.org/project/YooMoney/#access-token)
       - [ACCOUNT_NUMBER](https://pypi.org/project/YooMoney/#account-information)
       - [CRYPTO_PAY_TOKEN](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7)
+      - [CRYPTO_PAY_TOKEN](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7)
+      - [CRYPTO_PAY_TOKEN](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7)
 
    5. [Setup config.py](../bot/misc/config.py)
       - CHANNEL_URL - telegram channel link (to disable, set `CHANNEL_URL: Final = 'https://t.me/'`)
@@ -30,5 +32,6 @@
       ```
       alembic upgrade head
       ```
+3. If you want to change the path to BOT_LOGFILE and BOT_AUDITFILE, set it as an environment variable.
 
 ### [BACK](../README.md)

@@ -1,23 +1,33 @@
-from aiogram.utils import executor
-from aiogram import Bot, Dispatcher
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
+import logging
 
-from bot.filters import register_all_filters
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.storage.memory import MemoryStorage
+
 from bot.misc import EnvKeys
 from bot.handlers import register_all_handlers
 from bot.database.models import register_models
-from bot.logger_mesh import logger, file_handler
+from bot.logger_mesh import configure_logging
 
-logger.addHandler(file_handler)
+logger, audit = configure_logging(console=False, debug=False)
 
 
 async def __on_start_up(dp: Dispatcher) -> None:
-    register_all_filters(dp)
     register_all_handlers(dp)
     register_models()
 
 
-def start_bot():
-    bot = Bot(token=EnvKeys.TOKEN, parse_mode='HTML')
-    dp = Dispatcher(bot, storage=MemoryStorage())
-    executor.start_polling(dp, skip_updates=True, on_startup=__on_start_up, allowed_updates=["message", "callback_query"])
+async def start_bot():
+    logging.basicConfig(level=logging.INFO)
+    bot = Bot(
+        token=EnvKeys.TOKEN,
+        default=DefaultBotProperties(
+            parse_mode="HTML",
+            link_preview_is_disabled=False,
+            protect_content=False  # если нужно — запрет пересылки
+        ),
+    )
+    dp = Dispatcher(storage=MemoryStorage())
+
+    await __on_start_up(dp)
+    await dp.start_polling(bot, allowed_updates=["message", "callback_query"])

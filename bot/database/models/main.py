@@ -1,5 +1,8 @@
 import datetime
-from sqlalchemy import Column, Integer, String, BigInteger, ForeignKey, Text, Boolean, VARCHAR
+from sqlalchemy import (
+    Column, Integer, String, BigInteger, ForeignKey, Text, Boolean, VARCHAR,
+    DateTime, Numeric, Index, UniqueConstraint, func
+)
 from bot.database.main import Database
 from sqlalchemy.orm import relationship
 
@@ -34,11 +37,10 @@ class Role(Database.BASE):
         roles = {
             'USER': [Permission.USE],
             'ADMIN': [Permission.USE, Permission.BROADCAST,
-                      Permission.SETTINGS_MANAGE, Permission.USERS_MANAGE, Permission.SHOP_MANAGE, ],
+                      Permission.SETTINGS_MANAGE, Permission.USERS_MANAGE, Permission.SHOP_MANAGE],
             'OWNER': [Permission.USE, Permission.BROADCAST,
                       Permission.SETTINGS_MANAGE, Permission.USERS_MANAGE, Permission.SHOP_MANAGE,
-                      Permission.ADMINS_MANAGE,
-                      Permission.OWN],
+                      Permission.ADMINS_MANAGE, Permission.OWN],
         }
         default_role = 'USER'
         for r in roles:
@@ -72,16 +74,16 @@ class Role(Database.BASE):
 
 class User(Database.BASE):
     __tablename__ = 'users'
-    telegram_id = Column(BigInteger, nullable=False, unique=True, primary_key=True)
-    role_id = Column(Integer, ForeignKey('roles.id'), default=1)
-    balance = Column(BigInteger, nullable=False, default=0)
-    referral_id = Column(BigInteger, nullable=True)
-    registration_date = Column(VARCHAR, nullable=False)
+    telegram_id = Column(BigInteger, primary_key=True)
+    role_id = Column(Integer, ForeignKey('roles.id', ondelete="RESTRICT"), default=1, index=True)
+    balance = Column(Numeric(12, 2), nullable=False, default=0)
+    referral_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="SET NULL"), nullable=True, index=True)
+    registration_date = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     user_operations = relationship("Operations", back_populates="user_telegram_id")
     user_unfinished_operations = relationship("UnfinishedOperations", back_populates="user_telegram_id")
     user_goods = relationship("BoughtGoods", back_populates="user_telegram_id")
 
-    def __init__(self, telegram_id: int, registration_date: datetime.datetime, balance: int = 0,
+    def __init__(self, telegram_id: int, registration_date: datetime.datetime, balance=0,
                  referral_id=None, role_id: int = 1):
         self.telegram_id = telegram_id
         self.role_id = role_id
@@ -92,7 +94,7 @@ class User(Database.BASE):
 
 class Categories(Database.BASE):
     __tablename__ = 'categories'
-    name = Column(String(100), primary_key=True, unique=True, nullable=False)
+    name = Column(String(100), primary_key=True)
     item = relationship("Goods", back_populates="category")
 
     def __init__(self, name: str):
@@ -101,14 +103,14 @@ class Categories(Database.BASE):
 
 class Goods(Database.BASE):
     __tablename__ = 'goods'
-    name = Column(String(100), nullable=False, unique=True, primary_key=True)
-    price = Column(BigInteger, nullable=False)
+    name = Column(String(100), primary_key=True)
+    price = Column(Numeric(12, 2), nullable=False)
     description = Column(Text, nullable=False)
-    category_name = Column(String(100), ForeignKey('categories.name'), nullable=False)
+    category_name = Column(String(100), ForeignKey('categories.name', ondelete="CASCADE"), nullable=False, index=True)
     category = relationship("Categories", back_populates="item")
     values = relationship("ItemValues", back_populates="item")
 
-    def __init__(self, name: str, price: int, description: str, category_name: str):
+    def __init__(self, name: str, price, description: str, category_name: str):
         self.name = name
         self.price = price
         self.description = description
@@ -117,11 +119,16 @@ class Goods(Database.BASE):
 
 class ItemValues(Database.BASE):
     __tablename__ = 'item_values'
-    id = Column(Integer, nullable=False, primary_key=True)
-    item_name = Column(String(100), ForeignKey('goods.name'), nullable=False)
+    id = Column(Integer, primary_key=True)
+    item_name = Column(String(100), ForeignKey('goods.name', ondelete="CASCADE"), nullable=False, index=True)
     value = Column(Text, nullable=True)
     is_infinity = Column(Boolean, nullable=False)
     item = relationship("Goods", back_populates="values")
+
+    __table_args__ = (
+        UniqueConstraint('item_name', 'value', name='uq_item_value_per_item'),
+        Index('ix_item_values_item_inf', 'item_name', 'is_infinity'),
+    )
 
     def __init__(self, name: str, value: str, is_infinity: bool):
         self.item_name = name
@@ -131,17 +138,16 @@ class ItemValues(Database.BASE):
 
 class BoughtGoods(Database.BASE):
     __tablename__ = 'bought_goods'
-    id = Column(Integer, nullable=False, primary_key=True)
-    item_name = Column(String(100), nullable=False)
+    id = Column(Integer, primary_key=True)
+    item_name = Column(String(100), nullable=False, index=True)
     value = Column(Text, nullable=False)
-    price = Column(BigInteger, nullable=False)
-    buyer_id = Column(BigInteger, ForeignKey('users.telegram_id'), nullable=False)
-    bought_datetime = Column(VARCHAR, nullable=False)
+    price = Column(Numeric(12, 2), nullable=False)
+    buyer_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="SET NULL"), nullable=True, index=True)
+    bought_datetime = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     unique_id = Column(BigInteger, nullable=False, unique=True)
     user_telegram_id = relationship("User", back_populates="user_goods")
 
-    def __init__(self, name: str, value: str, price: int, bought_datetime: str, unique_id,
-                 buyer_id: int = 0):
+    def __init__(self, name: str, value: str, price, bought_datetime, unique_id, buyer_id: int = 0):
         self.item_name = name
         self.value = value
         self.price = price
@@ -152,13 +158,13 @@ class BoughtGoods(Database.BASE):
 
 class Operations(Database.BASE):
     __tablename__ = 'operations'
-    id = Column(Integer, nullable=False, primary_key=True)
-    user_id = Column(BigInteger, ForeignKey('users.telegram_id'), nullable=False)
-    operation_value = Column(BigInteger, nullable=False)
-    operation_time = Column(VARCHAR, nullable=False)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), nullable=False, index=True)
+    operation_value = Column(Numeric(12, 2), nullable=False)
+    operation_time = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     user_telegram_id = relationship("User", back_populates="user_operations")
 
-    def __init__(self, user_id: int, operation_value: int, operation_time: str):
+    def __init__(self, user_id: int, operation_value, operation_time):
         self.user_id = user_id
         self.operation_value = operation_value
         self.operation_time = operation_time
@@ -166,16 +172,21 @@ class Operations(Database.BASE):
 
 class UnfinishedOperations(Database.BASE):
     __tablename__ = 'unfinished_operations'
-    id = Column(Integer, nullable=False, primary_key=True)
-    user_id = Column(BigInteger, ForeignKey('users.telegram_id'), nullable=False)
-    operation_value = Column(BigInteger, nullable=False)
-    operation_id = Column(String(500), nullable=False)
+    id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), nullable=False, index=True)
+    operation_value = Column(Numeric(12, 2), nullable=False)
+    operation_id = Column(String(128), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     user_telegram_id = relationship("User", back_populates="user_unfinished_operations")
 
-    def __init__(self, user_id: int, operation_value: int, operation_id: str):
+    def __init__(self, user_id: int, operation_value, operation_id: str):
         self.user_id = user_id
         self.operation_value = operation_value
         self.operation_id = operation_id
+
+
+Index("ix_bought_goods_buyer_time", BoughtGoods.buyer_id, BoughtGoods.bought_datetime.desc())
+Index("ix_operations_user_time", Operations.user_id, Operations.operation_time.desc())
 
 
 def register_models():

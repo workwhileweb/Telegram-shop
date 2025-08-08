@@ -1,39 +1,41 @@
-from aiogram import Dispatcher
+from aiogram import Router, F
 from aiogram.types import CallbackQuery
-
-from bot.keyboards import console
+from bot.keyboards import admin_console_keyboard
 from bot.database.methods import check_role
-from bot.misc import TgConfig
+from bot.filters import HasPermissionFilter
+from bot.database.models import Permission
 
-from bot.handlers.admin.broadcast import register_mailing
-from bot.handlers.admin.shop_management_states import register_shop_management
-from bot.handlers.admin.user_management_states import register_user_management
-from bot.handlers.admin.categories_management_states import register_categories_management
-from bot.handlers.admin.goods_management_states import register_goods_management
-from bot.handlers.admin.adding_position_states import register_add_management
-from bot.handlers.admin.update_position_states import register_update_management
-from bot.handlers.other import get_bot_user_ids
+# Импортируем дочерние роутеры
+from bot.handlers.admin.broadcast import router as broadcast_router
+from bot.handlers.admin.shop_management_states import router as shop_management_router
+from bot.handlers.admin.user_management_states import router as user_management_router
+from bot.handlers.admin.categories_management_states import router as categories_management_router
+from bot.handlers.admin.goods_management_states import router as goods_management_router
+from bot.handlers.admin.adding_position_states import router as add_management_router
+from bot.handlers.admin.update_position_states import router as update_management_router
+
+router = Router()
 
 
+# Меню администратора — только для админов (SHOP_MANAGE)
+@router.callback_query(F.data == 'console', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def console_callback_handler(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
-    TgConfig.STATE[user_id] = None
+    """
+    Меню администратора (только для админов и выше).
+    """
+    user_id = call.from_user.id
     role = check_role(user_id)
     if role > 1:
-        await bot.edit_message_text('⛩️ Меню администратора',
-                                    chat_id=call.message.chat.id,
-                                    message_id=call.message.message_id,
-                                    reply_markup=console())
+        await call.message.edit_text('⛩️ Меню администратора', reply_markup=admin_console_keyboard())
+    else:
+        await call.answer('Недостаточно прав')
 
 
-def register_admin_handlers(dp: Dispatcher) -> None:
-    dp.register_callback_query_handler(console_callback_handler,
-                                       lambda c: c.data == 'console')
-
-    register_mailing(dp)
-    register_shop_management(dp)
-    register_user_management(dp)
-    register_categories_management(dp)
-    register_goods_management(dp)
-    register_add_management(dp)
-    register_update_management(dp)
+# Подключаем все вложенные роутеры
+router.include_router(broadcast_router)
+router.include_router(shop_management_router)
+router.include_router(user_management_router)
+router.include_router(categories_management_router)
+router.include_router(goods_management_router)
+router.include_router(add_management_router)
+router.include_router(update_management_router)

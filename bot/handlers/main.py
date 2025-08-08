@@ -1,15 +1,11 @@
 from aiogram import Dispatcher
 
-from bot.handlers.admin import register_admin_handlers
-from bot.handlers.other import register_other_handlers
-from bot.handlers.user import register_user_handlers
+from bot.handlers.admin import router as admin_router
+from bot.handlers.other import router as other_router
+from bot.handlers.user import router as user_router
 
 
 def register_all_handlers(dp: Dispatcher) -> None:
-    handlers = (
-        register_user_handlers,
-        register_admin_handlers,
-        register_other_handlers,
-    )
-    for handler in handlers:
-        handler(dp)
+    dp.include_router(admin_router)
+    dp.include_router(other_router)
+    dp.include_router(user_router)

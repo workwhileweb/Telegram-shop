@@ -3,7 +3,6 @@ from typing import Final
 
 
 class TgConfig(ABC):
-    STATE: Final = {}
     CHANNEL_URL: Final = 'https://t.me/your_channel'
     HELPER_URL: Final = '@YourHelper'
     GROUP_ID: Final = -988765433

@@ -1,11 +1,14 @@
+from datetime import datetime
+
 import sqlalchemy.exc
+from sqlalchemy.exc import IntegrityError
 import random
 from bot.database.models import User, ItemValues, Goods, Categories, BoughtGoods, \
     Operations, UnfinishedOperations
 from bot.database import Database
 
 
-def create_user(telegram_id: int, registration_date, referral_id, role: int = 1) -> None:
+def create_user(telegram_id: int, registration_date: datetime, referral_id: int, role: int = 1) -> None:
     session = Database().session
     try:
         session.query(User.telegram_id).filter(User.telegram_id == telegram_id).one()
@@ -29,15 +32,33 @@ def create_item(item_name: str, item_description: str, item_price: int, category
     session.commit()
 
 
-def add_values_to_item(item_name: str, value: str, is_infinity: bool) -> None:
+def add_values_to_item(item_name: str, value: str, is_infinity: bool) -> bool:
+    """
+    True  — вставлено новое значение
+    False — значение уже существует (дубликат) или пустое
+    """
     session = Database().session
-    if is_infinity is False:
-        session.add(
-            ItemValues(name=item_name, value=value, is_infinity=False))
-    else:
-        session.add(
-            ItemValues(name=item_name, value=value, is_infinity=True))
-    session.commit()
+    value_norm = (value or "").strip()
+    if not value_norm:
+        return False
+
+    # Предчек на дубликат
+    exists = session.query(ItemValues.id).filter(
+        ItemValues.item_name == item_name,
+        ItemValues.value == value_norm
+    ).first()
+    if exists:
+        return False
+
+    try:
+        obj = ItemValues(name=item_name, value=value_norm, is_infinity=is_infinity)
+        session.add(obj)
+        session.commit()
+        return True
+    except IntegrityError:
+        session.rollback()
+        # Параллельная гонка/уникальность — трактуем как дубликат
+        return False
 
 
 def create_category(category_name: str) -> None:
@@ -47,7 +68,7 @@ def create_category(category_name: str) -> None:
     session.commit()
 
 
-def create_operation(user_id: int, value: int, operation_time: str) -> None:
+def create_operation(user_id: int, value: int, operation_time: datetime) -> None:
     session = Database().session
     session.add(
         Operations(user_id=user_id, operation_value=value, operation_time=operation_time))
@@ -62,7 +83,7 @@ def start_operation(user_id: int, value: int, operation_id: str) -> None:
 
 
 def add_bought_item(item_name: str, value: str, price: int, buyer_id: int,
-                    bought_time: str) -> None:
+                    bought_time: datetime) -> None:
     session = Database().session
     session.add(
         BoughtGoods(name=item_name, value=value, price=price, buyer_id=buyer_id, bought_datetime=bought_time,

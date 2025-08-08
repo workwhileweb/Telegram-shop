@@ -1,247 +1,280 @@
-from aiogram import Dispatcher
-from aiogram.types import Message, CallbackQuery
-from aiogram.utils.exceptions import ChatNotFound
+from aiogram import Router, F
+from aiogram.types import CallbackQuery, Message
+from aiogram.filters.state import StatesGroup, State
 
-from bot.database.methods import check_role, check_category, check_item, create_item, add_values_to_item
 from bot.database.models import Permission
-from bot.handlers.other import get_bot_user_ids
-from bot.keyboards import back, question_buttons, goods_adding
-from bot.logger_mesh import logger
+from bot.database.methods import (
+    check_category, check_item, create_item, add_values_to_item
+)
+from bot.keyboards.inline import back, question_buttons, simple_buttons
+from bot.logger_mesh import audit_logger
+from bot.filters import HasPermissionFilter
 from bot.misc import TgConfig
 
-
-async def add_item_callback_handler(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
-    TgConfig.STATE[f'{user_id}_message_id'] = call.message.message_id
-    TgConfig.STATE[user_id] = 'create_item_name'
-    role = check_role(user_id)
-    if role >= Permission.SHOP_MANAGE:
-        await bot.edit_message_text('Введите название позиции',
-                                    chat_id=call.message.chat.id,
-                                    message_id=call.message.message_id,
-                                    reply_markup=back("item-management"))
-        return
-    await call.answer('Недостаточно прав')
+router = Router()
 
 
-async def check_item_name_for_add(message: Message):
-    bot, user_id = await get_bot_user_ids(message)
-    item_name = message.text
-    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
+class AddItemFSM(StatesGroup):
+    """
+    FSM для пошагового создания позиции (товара):
+    1) имя,
+    2) описание,
+    3) цена,
+    4) категория,
+    5) режим (бесконечный или нет),
+    6) ввод значений товара (одно / много).
+    """
+    waiting_item_name = State()
+    waiting_item_description = State()
+    waiting_item_price = State()
+    waiting_category = State()
+    waiting_infinity = State()
+    waiting_values = State()
+    waiting_single_value = State()
+
+
+# --- Старт сценария создания позиции (требуются права SHOP_MANAGE)
+@router.callback_query(F.data == 'add_item', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
+async def add_item_callback_handler(call: CallbackQuery, state):
+    """
+    Запрашиваем у администратора имя новой позиции.
+    """
+    await call.message.edit_text('Введите название позиции', reply_markup=back("goods_management"))
+    await state.set_state(AddItemFSM.waiting_item_name)
+
+
+# --- Проверка имени позиции (не должно существовать)
+@router.message(AddItemFSM.waiting_item_name, F.text)
+async def check_item_name_for_add(message: Message, state):
+    """
+    Если позиция уже существует — сообщаем; иначе сохраняем имя и просим описание.
+    """
+    item_name = message.text.strip()
     item = check_item(item_name)
-    await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
     if item:
-        await bot.edit_message_text(chat_id=message.chat.id,
-                                    message_id=message_id,
-                                    text='❌ Позиция не может быть создана (Такая позиция уже существует)',
-                                    reply_markup=back('item-management'))
+        await message.answer(
+            '❌ Позиция не может быть создана (такая позиция уже существует)',
+            reply_markup=back('goods_management')
+        )
         return
-    TgConfig.STATE[user_id] = 'create_item_description'
-    TgConfig.STATE[f'{user_id}_name'] = message.text
-    await bot.edit_message_text(chat_id=message.chat.id,
-                                message_id=message_id,
-                                text='Введите описание для позиции:',
-                                reply_markup=back('item-management'))
+
+    await state.update_data(item_name=item_name)
+    await message.answer('Введите описание для позиции:', reply_markup=back('goods_management'))
+    await state.set_state(AddItemFSM.waiting_item_description)
 
 
-async def add_item_description(message: Message):
-    bot, user_id = await get_bot_user_ids(message)
-    TgConfig.STATE[f'{user_id}_description'] = message.text
-    TgConfig.STATE[user_id] = 'create_item_price'
-    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
-    await bot.delete_message(chat_id=message.chat.id,
-                             message_id=message.message_id)
-    await bot.edit_message_text(chat_id=message.chat.id,
-                                message_id=message_id,
-                                text='Введите цену для позиции:',
-                                reply_markup=back('item-management'))
+# --- Ввод описания
+@router.message(AddItemFSM.waiting_item_description, F.text)
+async def add_item_description(message: Message, state):
+    """
+    Сохраняем описание и переходим к цене.
+    """
+    await state.update_data(item_description=message.text.strip())
+    await message.answer('Введите цену для позиции (число в ₽):', reply_markup=back('goods_management'))
+    await state.set_state(AddItemFSM.waiting_item_price)
 
 
-async def add_item_price(message: Message):
-    bot, user_id = await get_bot_user_ids(message)
-    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
-    await bot.delete_message(chat_id=message.chat.id,
-                             message_id=message.message_id)
-    if not message.text.isdigit():
-        await bot.edit_message_text(chat_id=message.chat.id,
-                                    message_id=message_id,
-                                    text='⚠️ некорректное значение цены.',
-                                    reply_markup=back('item-management'))
+# --- Ввод цены
+@router.message(AddItemFSM.waiting_item_price, F.text)
+async def add_item_price(message: Message, state):
+    """
+    Валидируем цену и спрашиваем категорию.
+    """
+    price_text = message.text.strip()
+    if not price_text.isdigit():
+        await message.answer('⚠️ Некорректное значение цены. Введите число.', reply_markup=back('goods_management'))
         return
-    TgConfig.STATE[user_id] = 'check_item_category'
-    TgConfig.STATE[f'{user_id}_price'] = message.text
-    await bot.edit_message_text(chat_id=message.chat.id,
-                                message_id=message_id,
-                                text='Введите категорию, к которой будет относится позиция:',
-                                reply_markup=back('item-management'))
+
+    await state.update_data(item_price=int(price_text))
+    await message.answer('Введите категорию, к которой будет относиться позиция:',
+                         reply_markup=back('goods_management'))
+    await state.set_state(AddItemFSM.waiting_category)
 
 
-async def check_category_for_add_item(message: Message):
-    bot, user_id = await get_bot_user_ids(message)
-    category_name = message.text
-    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
-    await bot.delete_message(chat_id=message.chat.id,
-                             message_id=message.message_id)
+# --- Проверка категории
+@router.message(AddItemFSM.waiting_category, F.text)
+async def check_category_for_add_item(message: Message, state):
+    """
+    Категория должна существовать; затем спрашиваем про бесконечность товара.
+    """
+    category_name = message.text.strip()
     category = check_category(category_name)
     if not category:
-        await bot.edit_message_text(chat_id=message.chat.id,
-                                    message_id=message_id,
-                                    text='❌ Позиция не может быть создана (Категория для привязки введена неверно)',
-                                    reply_markup=back('item-management'))
+        await message.answer(
+            '❌ Позиция не может быть создана (категория для привязки введена неверно)',
+            reply_markup=back('goods_management')
+        )
         return
-    TgConfig.STATE[user_id] = None
-    TgConfig.STATE[f'{user_id}_category'] = category_name
-    await bot.edit_message_text(chat_id=message.chat.id,
-                                message_id=message_id,
-                                text='У этой позиции будут бесконечные товары? '
-                                     '(всем будет высылаться одна копия товара)',
-                                reply_markup=question_buttons('infinity', 'item-management'))
+
+    await state.update_data(item_category=category_name)
+    await message.answer(
+        'У этой позиции будут бесконечные товары? (всем будет высылаться одна копия значения)',
+        reply_markup=question_buttons('infinity', 'goods_management')
+    )
+    await state.set_state(AddItemFSM.waiting_infinity)
 
 
-async def adding_value_to_position(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
+# --- Выбор режима: бесконечные товары / конечные
+@router.callback_query(F.data.startswith('infinity_'), AddItemFSM.waiting_infinity)
+async def adding_value_to_position(call: CallbackQuery, state):
+    """
+    Если бесконечно — ждём одно значение.
+    Если нет — собираем множество значений до завершения.
+    """
     answer = call.data.split('_')[1]
-    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
-    TgConfig.STATE[f'{user_id}_answer'] = answer
-    TgConfig.STATE[f'{user_id}_message'] = message_id
+    await state.update_data(is_infinity=(answer == 'yes'))
 
     if answer == 'no':
-        TgConfig.STATE[user_id] = 'add_item_values'
-        TgConfig.STATE[f'{user_id}_values'] = []
-        await bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=message_id,
-            text=(
-                'Введите товары для позиции по одному сообщению.\n'
-                'Когда закончите ввод — нажмите «Добавить указанные товары». (появится после первого добавленного товара)'
-            ),
-            reply_markup=back("item-management")
+        # Кнопка “Завершить добавление” появится после первого значения
+        await call.message.edit_text(
+            'Введите товары для позиции по одному сообщению.\n'
+            'Когда закончите ввод — нажмите «Добавить указанные товары».',
+            reply_markup=back("goods_management")
         )
+        await state.set_state(AddItemFSM.waiting_values)
     else:
-        TgConfig.STATE[user_id] = 'finish_adding_item'
-        await bot.edit_message_text(
-            chat_id=call.message.chat.id,
-            message_id=message_id,
-            text='Введите товар для позиции:',
-            reply_markup=back('item-management')
+        await call.message.edit_text(
+            'Введите одно значение товара для позиции:',
+            reply_markup=back('goods_management')
         )
+        await state.set_state(AddItemFSM.waiting_single_value)
 
 
-async def collect_item_value(message: Message):
-    bot, user_id = await get_bot_user_ids(message)
-    values = TgConfig.STATE.setdefault(f'{user_id}_values', [])
-    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
+# --- Сбор значений (НЕ бесконечный режим)
+@router.message(AddItemFSM.waiting_values, F.text)
+async def collect_item_value(message: Message, state):
+    """
+    Копим значения в FSM-состоянии. После первого — даём кнопку “Завершить”.
+    """
+    data = await state.get_data()
+    values = data.get('item_values', [])
     values.append(message.text)
-    await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    await state.update_data(item_values=values)
 
-    await bot.edit_message_text(
-        chat_id=message.chat.id,
-        message_id=message_id,
-        text=f'✅ Товар «{message.text}» добавлен в список ({len(values)} шт.)',
-        reply_markup=goods_adding("finish_adding_items", "item-management")
+    # Показываем прогресс и кнопку “Завершить добавление”
+    await message.answer(
+        f'✅ Товар «{message.text}» добавлен в список ({len(values)} шт.)',
+        reply_markup=simple_buttons([
+            ("Добавить указанные товары", "finish_adding_items"),
+            ("⬅️ Назад", "goods_management")
+        ], per_row=1)
     )
 
 
+# --- Завершить добавление всех значений (НЕ бесконечный режим)
+@router.callback_query(F.data == 'finish_adding_items', AddItemFSM.waiting_values)
+async def finish_adding_items_callback_handler(call: CallbackQuery, state):
+    """
+    Создаём позицию, добавляем все собранные значения, уведомляем группу (если задана).
+    """
+    data = await state.get_data()
+    item_name = data.get('item_name')
+    item_description = data.get('item_description')
+    item_price = data.get('item_price')
+    category_name = data.get('item_category')
+    raw_values: list[str] = data.get("item_values", []) or []
 
-async def finish_adding_items_callback_handler(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
-    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
-    item_name = TgConfig.STATE.get(f'{user_id}_name')
-    item_description = TgConfig.STATE.get(f'{user_id}_description')
-    item_price = TgConfig.STATE.get(f'{user_id}_price')
-    category_name = TgConfig.STATE.get(f'{user_id}_category')
-    values = TgConfig.STATE.pop(f'{user_id}_values', [])
-    TgConfig.STATE[user_id] = None
+    added = 0
+    skipped_db_dup = 0
+    skipped_batch_dup = 0
+    skipped_invalid = 0
+    seen_in_batch: set[str] = set()
 
+    # создаём позицию
     create_item(item_name, item_description, item_price, category_name)
 
-    for val in values:
-        add_values_to_item(item_name, val, False)
+    for v in raw_values:
+        v_norm = (v or "").strip()
+        if not v_norm:
+            skipped_invalid += 1
+            continue
 
+        # Дубликат внутри текущей пачки
+        if v_norm in seen_in_batch:
+            skipped_batch_dup += 1
+            continue
+        seen_in_batch.add(v_norm)
+
+        # Пытаемся вставить — False означает, что такое уже есть в БД
+        if add_values_to_item(item_name, v_norm, False):
+            added += 1
+        else:
+            skipped_db_dup += 1
+
+    text_lines = [f"✅ Позиция создана.", f"📦 Добавлено товаров: <b>{added}</b>"]
+    if skipped_db_dup:
+        text_lines.append(f"↩️ Пропущено (уже были в БД): <b>{skipped_db_dup}</b>")
+    if skipped_batch_dup:
+        text_lines.append(f"🔁 Пропущено (дубль в вводе): <b>{skipped_batch_dup}</b>")
+    if skipped_invalid:
+        text_lines.append(f"🚫 Пропущено (пустые/некорректные): <b>{skipped_invalid}</b>")
+
+    await call.message.edit_text("\n".join(text_lines), parse_mode="HTML", reply_markup=back("goods_management"))
+
+    # опционально уведомляем группу
     group_id = TgConfig.GROUP_ID if TgConfig.GROUP_ID != -988765433 else None
     if group_id:
         try:
-            await bot.send_message(
+            await call.message.bot.send_message(
                 chat_id=group_id,
                 text=(
                     f'🎁 Залив\n'
                     f'🏷️ Товар: <b>{item_name}</b>\n'
-                    f'📦 Количество: <b>{len(values)}</b>'
+                    f'📦 Количество: <b>{added}</b>'
                 ),
                 parse_mode='HTML'
             )
-        except ChatNotFound:
+        except Exception:
             pass
 
-    await bot.edit_message_text(
-        chat_id=call.message.chat.id,
-        message_id=message_id,
-        text='✅ Позиция создана, товары добавлены',
-        reply_markup=back('item-management')
-    )
-    admin_info = await bot.get_chat(user_id)
-    logger.info(f"Пользователь {user_id} ({admin_info.first_name}) "
-                f'создал новую позицию "{item_name}"')
+    admin_info = await call.message.bot.get_chat(call.from_user.id)
+    audit_logger.info(
+        f"Пользователь {call.from_user.id} ({admin_info.first_name}) создал новую позицию \"{item_name}\"")
+    await state.clear()
 
 
-async def finish_adding_item_callback_handler(message: Message):
-    bot, user_id = await get_bot_user_ids(message)
-    message_id = TgConfig.STATE.get(f'{user_id}_message_id')
-    item_name = TgConfig.STATE.get(f'{user_id}_name')
-    item_description = TgConfig.STATE.get(f'{user_id}_description')
-    item_price = TgConfig.STATE.get(f'{user_id}_price')
-    category_name = TgConfig.STATE.get(f'{user_id}_category')
-    value = message.text
-    TgConfig.STATE[user_id] = None
+# --- Ввод одного значения (Бесконечный режим)
+@router.message(AddItemFSM.waiting_single_value, F.text)
+async def finish_adding_item_callback_handler(message: Message, state):
+    """
+    Создаём позицию и добавляем одно “бесконечное” значение. Уведомляем группу (если задана).
+    """
+    data = await state.get_data()
+    item_name = data.get('item_name')
+    item_description = data.get('item_description')
+    item_price = data.get('item_price')
+    category_name = data.get('item_category')
 
+    single_value = message.text.strip()
+    if not single_value:
+        await message.answer('⚠️ Значение не может быть пустым.', reply_markup=back('goods_management'))
+        return
+
+    # 1) создаём позицию
     create_item(item_name, item_description, item_price, category_name)
-    add_values_to_item(item_name, value, True)
+    # 2) добавляем 1 «бесконечное» значение
+    add_values_to_item(item_name, single_value, True)
 
+    # 3) опционально уведомляем группу
     group_id = TgConfig.GROUP_ID if TgConfig.GROUP_ID != -988765433 else None
     if group_id:
         try:
-            await bot.send_message(
+            await message.bot.send_message(
                 chat_id=group_id,
                 text=(
                     f'🎁 Залив\n'
                     f'🏷️ Товар: <b>{item_name}</b>\n'
-                    f'📦 Количество: <b>неограниченно</b>'
+                    f'📦 Количество: <b>∞</b>'
                 ),
                 parse_mode='HTML'
             )
-        except ChatNotFound:
+        except Exception:
             pass
 
-    await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
-    await bot.edit_message_text(
-        chat_id=message.chat.id,
-        message_id=message_id,
-        text='✅ Позиция создана, товар добавлен',
-        reply_markup=back('item-management')
+    await message.answer('✅ Позиция создана, значение добавлено', reply_markup=back('goods_management'))
+    admin_info = await message.bot.get_chat(message.from_user.id)
+    audit_logger.info(
+        f'Пользователь {message.from_user.id} ({admin_info.first_name}) '
+        f'создал бесконечную позицию "{item_name}"'
     )
-    admin_info = await bot.get_chat(user_id)
-    logger.info(f"Пользователь {user_id} ({admin_info.first_name}) "
-                f'создал новую позицию "{item_name}"')
-
-
-def register_add_management(dp: Dispatcher) -> None:
-    dp.register_callback_query_handler(add_item_callback_handler,
-                                       lambda c: c.data == 'add_item')
-    dp.register_callback_query_handler(finish_adding_items_callback_handler,
-                                       lambda c: c.data == 'finish_adding_items')
-
-    dp.register_message_handler(finish_adding_item_callback_handler,
-                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'finish_adding_item')
-    dp.register_message_handler(check_item_name_for_add,
-                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'create_item_name')
-    dp.register_message_handler(add_item_description,
-                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'create_item_description')
-    dp.register_message_handler(add_item_price,
-                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'create_item_price')
-    dp.register_message_handler(check_category_for_add_item,
-                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'check_item_category')
-    dp.register_message_handler(collect_item_value,
-                                lambda c: TgConfig.STATE.get(c.from_user.id) == 'add_item_values')
-
-    dp.register_callback_query_handler(adding_value_to_position,
-                                       lambda c: c.data.startswith('infinity_'))
+    await state.clear()

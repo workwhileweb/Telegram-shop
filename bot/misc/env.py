@@ -9,3 +9,5 @@ class EnvKeys(ABC):
     ACCESS_TOKEN: Final = os.environ.get('ACCESS_TOKEN')
     ACCOUNT_NUMBER: Final = os.environ.get('ACCOUNT_NUMBER')
     CRYPTO_PAY_TOKEN: Final = os.getenv("CRYPTO_PAY_TOKEN")
+    BOT_LOGFILE: Final = os.getenv("BOT_LOGFILE", "bot.log")
+    BOT_AUDITFILE: Final = os.getenv("BOT_AUDITFILE", "audit.log")

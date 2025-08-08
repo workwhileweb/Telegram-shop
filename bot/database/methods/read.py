@@ -1,5 +1,5 @@
 import datetime
-
+from decimal import Decimal
 import sqlalchemy
 from sqlalchemy import exc, func
 
@@ -15,8 +15,17 @@ def check_user(telegram_id: int) -> User | None:
 
 
 def check_role(telegram_id: int) -> int | None:
-    role_id = Database().session.query(User.role_id).filter(User.telegram_id == telegram_id).one()[0]
-    return Database().session.query(Role.permissions).filter(Role.id == role_id).one()[0]
+    role_id = Database().session.query(User.role_id).filter(User.telegram_id == telegram_id).scalar()
+    if not role_id:
+        return 0  # нет роли -> нет прав
+    perms = Database().session.query(Role.permissions).filter(Role.id == role_id).scalar()
+    return perms or 0
+
+
+
+def get_role_id_by_name(role_name: str) -> int | None:
+    return Database().session.query(Role.id).filter(Role.name == role_name).scalar()
+
 
 
 def check_role_name_by_id(role_id: int):
@@ -34,8 +43,8 @@ def select_today_users(date: str) -> int | None:
         end_of_day = datetime.datetime.combine(date_obj, datetime.time.max)
 
         return Database().session.query(User).filter(
-            User.registration_date >= str(start_of_day),
-            User.registration_date <= str(end_of_day)
+            User.registration_date >= start_of_day,
+            User.registration_date <= end_of_day
         ).count()
     except exc.NoResultFound:
         return None
@@ -80,14 +89,14 @@ def get_item_info(item_name: str) -> dict | None:
     return result.__dict__ if result else None
 
 
-def get_goods_info(item_id: str) -> dict | None:
-    result = Database().session.query(ItemValues).filter(ItemValues.id == item_id).first()
+def get_goods_info(item_id: int) -> dict | None:
+    result = Database().session.query(ItemValues).filter(ItemValues.id == int(item_id)).first()
     return result.__dict__ if result else None
 
 
-def get_user_balance(telegram_id: int) -> float | None:
+def get_user_balance(telegram_id: int):
     result = Database().session.query(User.balance).filter(User.telegram_id == telegram_id).first()
-    return result[0] if result else None
+    return result[0] if result else Decimal(0)
 
 
 def get_all_admins() -> list[int]:
@@ -165,48 +174,50 @@ def select_count_bought_items() -> int:
     return Database().session.query(BoughtGoods).count()
 
 
-def select_today_orders(date: str) -> int | None:
+def select_today_orders(date: str) -> Decimal | None:
     try:
         date_obj = datetime.datetime.strptime(date, "%Y-%m-%d").date()
         start_of_day = datetime.datetime.combine(date_obj, datetime.time.min)
         end_of_day = datetime.datetime.combine(date_obj, datetime.time.max)
 
-        return (
-                Database().session.query(func.sum(BoughtGoods.price))
-                .filter(
-                    func.date(BoughtGoods.bought_datetime) >= start_of_day.date(),
-                    func.date(BoughtGoods.bought_datetime) <= end_of_day.date()
-                )
-                .scalar() or 0
+        res = (
+            Database().session.query(func.sum(BoughtGoods.price))
+            .filter(
+                BoughtGoods.bought_datetime >= start_of_day,
+                BoughtGoods.bought_datetime <= end_of_day
+            )
+            .scalar()
         )
+        return res or Decimal(0)
     except exc.NoResultFound:
         return None
 
 
-def select_all_orders() -> float:
-    return Database().session.query(func.sum(BoughtGoods.price)).scalar() or 0
+def select_all_orders() -> Decimal:
+    return Database().session.query(func.sum(BoughtGoods.price)).scalar() or Decimal(0)
 
 
-def select_today_operations(date: str) -> int | None:
+def select_today_operations(date: str) -> Decimal | None:
     try:
         date_obj = datetime.datetime.strptime(date, "%Y-%m-%d").date()
         start_of_day = datetime.datetime.combine(date_obj, datetime.time.min)
         end_of_day = datetime.datetime.combine(date_obj, datetime.time.max)
 
-        return (
-                Database().session.query(func.sum(Operations.operation_value))
-                .filter(
-                    func.date(Operations.operation_time) >= start_of_day.date(),
-                    func.date(Operations.operation_time) <= end_of_day.date()
-                )
-                .scalar() or 0
+        res = (
+            Database().session.query(func.sum(Operations.operation_value))
+            .filter(
+                Operations.operation_time >= start_of_day,
+                Operations.operation_time <= end_of_day
+            )
+            .scalar()
         )
+        return res or Decimal(0)
     except exc.NoResultFound:
         return None
 
 
-def select_all_operations() -> float:
-    return Database().session.query(func.sum(Operations.operation_value)).scalar() or 0
+def select_all_operations() -> Decimal:
+    return Database().session.query(func.sum(Operations.operation_value)).scalar() or Decimal(0)
 
 
 def select_users_balance() -> float:

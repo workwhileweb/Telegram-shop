@@ -1,167 +1,232 @@
-from aiogram import Dispatcher
+from aiogram import Router, F
 from aiogram.types import CallbackQuery
+from aiogram.fsm.context import FSMContext
+from aiogram.filters.state import State, StatesGroup
 
-from bot.database.methods import get_all_categories, get_all_items, select_bought_items, get_bought_item_info, get_item_info, \
-    select_item_values_amount, bought_items_list, check_value
-from bot.handlers.other import get_bot_user_ids
-from bot.keyboards import categories_list, goods_list, user_items_list, back, item_info
-from bot.misc import TgConfig
+from bot.database.methods import (
+    get_all_categories, get_all_items, select_bought_items, get_bought_item_info, get_item_info,
+    select_item_values_amount, check_value
+)
+from bot.keyboards import paginated_keyboard, item_info, back
+
+router = Router()
 
 
-async def shop_callback_handler(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
-    TgConfig.STATE[user_id] = None
+class ShopStates(StatesGroup):
+    """
+    Состояния FSM для раздела покупок (для личного списка покупок).
+    """
+    viewing_goods = State()
+    viewing_bought_items = State()
+    viewing_categories = State()
+
+
+# --- Открыть магазин (категории)
+@router.callback_query(F.data == "shop")
+async def shop_callback_handler(call: CallbackQuery, state: FSMContext):
+    """
+    Показывает пользователю список категорий магазина.
+    """
     categories = get_all_categories()
-    max_index = len(categories) // 10
-    if len(categories) % 10 == 0:
-        max_index -= 1
-    markup = categories_list(categories, 0, max_index)
-    await bot.edit_message_text('🏪 Категории магазина',
-                                chat_id=call.message.chat.id,
-                                message_id=call.message.message_id,
-                                reply_markup=markup)
+    markup = paginated_keyboard(
+        items=categories,
+        item_text=lambda cat: cat,
+        item_callback=lambda cat: f"category_{cat}",
+        page=0,
+        per_page=10,
+        back_cb="back_to_menu",
+        nav_cb_prefix="categories-page_",
+    )
+    await call.message.edit_text("🏪 Категории магазина", reply_markup=markup)
+    await state.set_state(ShopStates.viewing_categories)
 
 
+# --- Пагинация категорий — БЕЗ состояния
+@router.callback_query(F.data.startswith('categories-page_'))
 async def navigate_categories(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
-    categories = get_all_categories()
-    current_index = int(call.data.split('_')[1])
-    max_index = len(categories) // 10
-    if len(categories) % 10 == 0:
-        max_index -= 1
-    if 0 <= current_index <= max_index:
-        markup = categories_list(categories, current_index, max_index)
-        await bot.edit_message_text(message_id=call.message.message_id,
-                                    chat_id=call.message.chat.id,
-                                    text='🏪 Категории магазина',
-                                    reply_markup=markup)
-    else:
-        await bot.answer_callback_query(callback_query_id=call.id,
-                                        text="❌ Такой страницы нет")
+    """
+    Пагинация по списку категорий магазина.
+    Формат: categories-page_{page}
+    """
+    parts = call.data.split('_', 1)
+    current_index = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+
+    categories = get_all_categories() or []
+    per_page = 10
+    max_page = max((len(categories) - 1) // per_page, 0)
+    current_index = max(0, min(current_index, max_page))
+
+    markup = paginated_keyboard(
+        items=categories,
+        item_text=lambda cat: cat,
+        item_callback=lambda cat: f"category_{cat}",
+        page=current_index,
+        per_page=per_page,
+        back_cb="back_to_menu",
+        nav_cb_prefix="categories-page_"
+    )
+    await call.message.edit_text('🏪 Категории магазина', reply_markup=markup)
 
 
-async def items_list_callback_handler(call: CallbackQuery):
+# --- Открыть список товаров категории — БЕЗ состояния
+@router.callback_query(F.data.startswith('category_'))
+async def items_list_callback_handler(call: CallbackQuery, state: FSMContext):
+    """
+    Показывает список товаров выбранной категории.
+    """
     category_name = call.data[9:]
-    bot, user_id = await get_bot_user_ids(call)
-    TgConfig.STATE[user_id] = None
     goods = get_all_items(category_name)
-    max_index = len(goods) // 10
-    if len(goods) % 10 == 0:
-        max_index -= 1
-    markup = goods_list(goods, category_name, 0, max_index)
-    await bot.edit_message_text('🏪 выберите нужный товар', chat_id=call.message.chat.id,
-                                message_id=call.message.message_id, reply_markup=markup)
+    markup = paginated_keyboard(
+        items=goods,
+        item_text=lambda item: item,
+        item_callback=lambda item: f"item_{item}",
+        page=0,
+        per_page=10,
+        back_cb="shop",
+        nav_cb_prefix=f"goods-page_{category_name}_",
+    )
+    await call.message.edit_text("🏪 Выберите нужный товар", reply_markup=markup)
+    await state.set_state(ShopStates.viewing_goods)
 
 
+# --- Пагинация товаров в категории
+@router.callback_query(F.data.startswith('goods-page_'), ShopStates.viewing_goods)
 async def navigate_goods(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
-    category_name = call.data.split('_')[1]
-    current_index = int(call.data.split('_')[2])
+    """
+    Пагинация по списку товаров в выбранной категории.
+    Формат: goods-page_{category}_{page}
+    """
+    prefix = "goods-page_"
+    tail = call.data[len(prefix):]  # "{category_name}_{page}"
+    category_name, current_index = tail.rsplit("_", 1)  # <-- rsplit защищает от '_' в категории
+    current_index = int(current_index)
+
     goods = get_all_items(category_name)
-    max_index = len(goods) // 10
-    if len(goods) % 10 == 0:
-        max_index -= 1
-    if 0 <= current_index <= max_index:
-        markup = goods_list(goods, category_name, current_index, max_index)
-        await bot.edit_message_text(message_id=call.message.message_id,
-                                    chat_id=call.message.chat.id,
-                                    text='🏪 выберите нужный товар',
-                                    reply_markup=markup)
-    else:
-        await bot.answer_callback_query(callback_query_id=call.id, text="❌ Такой страницы нет")
+    markup = paginated_keyboard(
+        items=goods,
+        item_text=lambda item: item,
+        item_callback=lambda item: f"item_{item}",
+        page=current_index,
+        per_page=10,
+        back_cb="shop",
+        nav_cb_prefix=f"goods-page_{category_name}_",
+    )
+    await call.message.edit_text("🏪 Выберите нужный товар", reply_markup=markup)
 
 
+# --- Карточка товара — БЕЗ состояния
+@router.callback_query(F.data.startswith('item_'))
 async def item_info_callback_handler(call: CallbackQuery):
+    """
+    Показывает подробную информацию о товаре.
+    Работает всегда (без FSM), чтобы «Назад» из любых мест открывал карточку.
+    """
     item_name = call.data[5:]
-    bot, user_id = await get_bot_user_ids(call)
-    TgConfig.STATE[user_id] = None
     item_info_list = get_item_info(item_name)
+    if not item_info_list:
+        await call.answer("Товар не найден", show_alert=True)
+        return
+
     category = item_info_list['category_name']
-    quantity = 'Количество - неограниченно'
-    if not check_value(item_name):
-        quantity = f'Количество - {select_item_values_amount(item_name)}шт.'
+    quantity = (
+        'Количество - неограниченно'
+        if check_value(item_name)
+        else f'Количество - {select_item_values_amount(item_name)} шт.'
+    )
     markup = item_info(item_name, category)
-    await bot.edit_message_text(
+    await call.message.edit_text(
         f'🏪 Товар {item_name}\n'
         f'Описание: {item_info_list["description"]}\n'
         f'Цена - {item_info_list["price"]}₽\n'
         f'{quantity}',
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
-        reply_markup=markup)
+        reply_markup=markup
+    )
 
 
-async def navigate_bought_items(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
-    goods = bought_items_list(user_id)
-    bought_goods = select_bought_items(user_id)
-    current_index = int(call.data.split('_')[1])
-    data = call.data.split('_')[2]
-    max_index = len(goods) // 10
-    if len(goods) % 10 == 0:
-        max_index -= 1
-    if 0 <= current_index <= max_index:
-        if data == 'user':
-            back_data = 'profile'
-            pre_back = 'bought_items'
-        else:
-            back_data = f'check-user_{data}'
-            pre_back = f'user-items_{data}'
-        markup = user_items_list(bought_goods, data, back_data, pre_back, current_index, max_index)
-        await bot.edit_message_text(message_id=call.message.message_id,
-                                    chat_id=call.message.chat.id,
-                                    text='Ваши товары:',
-                                    reply_markup=markup)
-    else:
-        await bot.answer_callback_query(callback_query_id=call.id, text="❌ Такой страницы нет")
-
-
+# --- Купленные товары пользователя (эта часть оставляем с FSM)
+@router.callback_query(F.data == "bought_items")
 async def bought_items_callback_handler(call: CallbackQuery):
-    bot, user_id = await get_bot_user_ids(call)
-    TgConfig.STATE[user_id] = None
-    bought_goods = select_bought_items(user_id)
-    goods = bought_items_list(user_id)
-    max_index = len(goods) // 10
-    if len(goods) % 10 == 0:
-        max_index -= 1
-    markup = user_items_list(bought_goods, 'user', 'profile', 'bought_items', 0, max_index)
-    await bot.edit_message_text('Ваши товары:', chat_id=call.message.chat.id,
-                                message_id=call.message.message_id, reply_markup=markup)
+    """
+    Показывает список купленных пользователем товаров (со своей пагинацией).
+    """
+    user_id = call.from_user.id
+    bought_goods = select_bought_items(user_id) or []
+
+    markup = paginated_keyboard(
+        items=bought_goods,
+        item_text=lambda item: item.item_name,
+        item_callback=lambda item: f"bought-item:{item.id}:bought-goods-page_user_0",
+        page=0,
+        per_page=10,
+        back_cb="profile",
+        nav_cb_prefix="bought-goods-page_user_"
+    )
+    await call.message.edit_text("Купленные товары:", reply_markup=markup)
 
 
+# --- Пагинация купленных товаров
+@router.callback_query(F.data.startswith('bought-goods-page_'))
+async def navigate_bought_items(call: CallbackQuery):
+    """
+    Пагинация по списку купленных товаров пользователя.
+    Формат: 'bought-goods-page_{data}_{page}', где data = 'user' или user_id.
+    """
+    parts = call.data.split('_')
+    if len(parts) < 3:
+        await call.answer("Некорректные данные пагинации")
+        return
+
+    data = parts[1]
+    try:
+        current_index = int(parts[2])
+    except ValueError:
+        current_index = 0
+
+    if data == 'user':
+        user_id = call.from_user.id
+        back_cb = 'profile'
+        pre_back = f'bought-goods-page_user_{current_index}'
+    else:
+        user_id = int(data)
+        back_cb = f'check-user_{data}'
+        pre_back = f'bought-goods-page_{data}_{current_index}'
+
+    bought_goods = select_bought_items(user_id) or []
+
+    per_page = 10
+    max_page = max((len(bought_goods) - 1) // per_page, 0)
+    current_index = max(0, min(current_index, max_page))
+
+    markup = paginated_keyboard(
+        items=bought_goods,
+        item_text=lambda item: item.item_name,
+        item_callback=lambda item: f"bought-item:{item.id}:{pre_back}",
+        page=current_index,
+        per_page=per_page,
+        back_cb=back_cb,
+        nav_cb_prefix=f"bought-goods-page_{data}_"
+    )
+    await call.message.edit_text("Купленные товары:", reply_markup=markup)
+
+
+# --- Информация о купленном товаре
+@router.callback_query(F.data.startswith('bought-item:'))
 async def bought_item_info_callback_handler(call: CallbackQuery):
-    item_id = call.data.split(":")[1]
-    back_data = call.data.split(":")[2]
-    bot, user_id = await get_bot_user_ids(call)
-    TgConfig.STATE[user_id] = None
+    """
+    Показывает детальную информацию о купленном товаре.
+    """
+    _, item_id, back_data = call.data.split(':', 2)
     item = get_bought_item_info(item_id)
-    await bot.edit_message_text(
-        f'<b>Товар</b>: <code>{item["item_name"]}</code>\n'
-        f'<b>Цена</b>: <code>{item["price"]}</code>₽\n'
-        f'<b>Дата покупки</b>: <code>{item["bought_datetime"]}</code>\n'
-        f'<b>Уникальный ID</b>: <code>{item["unique_id"]}</code>\n'
-        f'<b>Значение</b>:\n<code>{item["value"]}</code>',
-        chat_id=call.message.chat.id,
-        message_id=call.message.message_id,
+    if not item:
+        await call.answer("Покупка не найдена", show_alert=True)
+        return
+
+    await call.message.edit_text(
+        f'<b>🧾 Товар</b>: <code>{item["item_name"]}</code>\n'
+        f'<b>💵 Цена</b>: <code>{item["price"]}</code>₽\n'
+        f'<b>🕒 Дата покупки</b>: <code>{item["bought_datetime"]}</code>\n'
+        f'<b>🧾 Уникальный ID</b>: <code>{item["unique_id"]}</code>\n'
+        f'<b>🔑 Значение</b>:\n<code>{item["value"]}</code>',
         parse_mode='HTML',
-        reply_markup=back(back_data))
-
-
-def register_shop_handlers(dp: Dispatcher):
-    dp.register_callback_query_handler(shop_callback_handler,
-                                       lambda c: c.data == 'shop')
-    dp.register_callback_query_handler(bought_items_callback_handler,
-                                       lambda c: c.data == 'bought_items')
-
-    dp.register_callback_query_handler(navigate_categories,
-                                       lambda c: c.data.startswith('categories-page_'))
-    dp.register_callback_query_handler(navigate_bought_items,
-                                       lambda c: c.data.startswith('bought-goods-page_'))
-    dp.register_callback_query_handler(navigate_goods,
-                                       lambda c: c.data.startswith('goods-page_'))
-    dp.register_callback_query_handler(bought_item_info_callback_handler,
-                                       lambda c: c.data.startswith('bought-item:'))
-    dp.register_callback_query_handler(items_list_callback_handler,
-                                       lambda c: c.data.startswith('category_'))
-    dp.register_callback_query_handler(item_info_callback_handler,
-                                       lambda c: c.data.startswith('item_'))
+        reply_markup=back(back_data)
+    )
