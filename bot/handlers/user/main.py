@@ -13,7 +13,7 @@ from bot.database.methods import (
 )
 from bot.handlers.other import check_sub_channel, get_bot_info
 from bot.keyboards import main_menu, back, simple_buttons, profile_keyboard
-from bot.misc import TgConfig, EnvKeys
+from bot.misc import EnvKeys
 
 # Импортируем дочерние роутеры
 from bot.handlers.user.balance_and_payment import router as balance_and_payment_router
@@ -45,9 +45,9 @@ async def start(message: Message, state: FSMContext):
     owner = select_max_role_id()
     referral_id = message.text[7:] if message.text[7:] != str(user_id) else None
     user_role = owner if str(user_id) == EnvKeys.OWNER_ID else 1
-    create_user(telegram_id=user_id, registration_date=datetime.datetime.now(), referral_id=referral_id, role=user_role)
+    create_user(telegram_id=user_id, registration_date=datetime.datetime.now(), referral_id=int(referral_id), role=user_role)
 
-    chat = TgConfig.CHANNEL_URL.lstrip('https://t.me/')
+    chat = EnvKeys.CHANNEL_URL.lstrip('https://t.me/')
     role_data = check_role(user_id)
 
     try:
@@ -64,7 +64,7 @@ async def start(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    markup = main_menu(role=role_data, channel=chat, helper=TgConfig.HELPER_URL)
+    markup = main_menu(role=role_data, channel=chat, helper=EnvKeys.HELPER_URL)
     await message.answer('⛩️ Основное меню', reply_markup=markup)
     await message.delete()
     await state.set_state(UserStates.main_menu)
@@ -78,7 +78,7 @@ async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
     """
     user_id = call.from_user.id
     user = check_user(user_id)
-    markup = main_menu(role=user.role_id, channel=TgConfig.CHANNEL_URL, helper=TgConfig.HELPER_URL)
+    markup = main_menu(role=user.role_id, channel=EnvKeys.CHANNEL_URL, helper=EnvKeys.HELPER_URL)
     await call.message.edit_text('⛩️ Основное меню', reply_markup=markup)
     await state.set_state(UserStates.main_menu)
 
@@ -89,7 +89,7 @@ async def rules_callback_handler(call: CallbackQuery, state: FSMContext):
     """
     Показывает текст правил, если они заданы.
     """
-    rules_data = TgConfig.RULES
+    rules_data = EnvKeys.RULES
     if rules_data:
         await call.message.edit_text(rules_data, reply_markup=back("back_to_menu"))
     else:
@@ -110,7 +110,7 @@ async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     operations = select_user_operations(user_id)
     overall_balance = sum(operations) if operations else 0
     items = select_user_items(user_id)
-    referral = TgConfig.REFERRAL_PERCENT
+    referral = EnvKeys.REFERRAL_PERCENT
     markup = profile_keyboard(referral, items)
     await call.message.edit_text(
         f"👤 <b>Профиль</b> — {user.first_name}\n"
@@ -132,7 +132,7 @@ async def referral_callback_handler(call: CallbackQuery, state: FSMContext):
     """
     user_id = call.from_user.id
     referrals = check_user_referrals(user_id)
-    referral_percent = TgConfig.REFERRAL_PERCENT
+    referral_percent = EnvKeys.REFERRAL_PERCENT
     bot_username = await get_bot_info(call)
     await call.message.edit_text(
         f'💚 Реферальная система\n'
@@ -153,10 +153,10 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
     Проверяет подписку пользователя на канал после нажатия "Проверить".
     """
     user_id = call.from_user.id
-    chat = TgConfig.CHANNEL_URL
+    chat = EnvKeys.CHANNEL_URL
     parsed_url = urlparse(chat)
     channel_username = parsed_url.path.lstrip('/')
-    helper = TgConfig.HELPER_URL
+    helper = EnvKeys.HELPER_URL
     chat_member = await call.bot.get_chat_member(chat_id='@' + channel_username, user_id=user_id)
 
     if await check_sub_channel(chat_member):

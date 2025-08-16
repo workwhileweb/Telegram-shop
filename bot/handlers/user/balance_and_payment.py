@@ -9,14 +9,14 @@ from aiogram.filters.state import StatesGroup, State
 
 from bot.database.methods import (
     get_user_balance, get_item_info, get_item_value, buy_item, add_bought_item,
-    buy_item_for_balance, start_operation, select_unfinished_operations,
+    buy_item_for_balance, start_operation,
     get_user_referral, finish_operation, update_balance, create_operation
 )
 from bot.keyboards import back, payment_menu, close, get_payment_choice
 from bot.logger_mesh import audit_logger
-from bot.misc import TgConfig, EnvKeys
+from bot.misc import EnvKeys
 from bot.handlers.other import _any_payment_method_enabled
-from bot.misc.payment import quick_pay, check_payment_status, CryptoPayAPI, send_stars_invoice, STARS_PER_RUB
+from bot.misc.payment import CryptoPayAPI, send_stars_invoice, send_fiat_invoice
 from bot.filters import ValidAmountFilter
 
 router = Router()
@@ -78,11 +78,12 @@ async def invalid_amount(message: Message, state: FSMContext):
 
 
 # --- Хэндлер: выбор способа оплаты
-@router.callback_query(BalanceStates.waiting_payment, F.data.in_(['pay_yoomoney', 'pay_cryptopay', "pay_stars"]))
+@router.callback_query(BalanceStates.waiting_payment,
+                       F.data.in_([ 'pay_cryptopay', "pay_stars", "pay_fiat"]))
 async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
     """
     Создаёт платёж для выбранного способа и предлагает пользователю оплатить.
-    Для Telegram Stars отправляем инвойс через Telegram Payments (currency='XTR'),
+    Для Telegram Stars и fiat отправляем инвойс через Telegram Payments,
     дальше срабатывают общие pre_checkout и successful_payment хэндлеры.
     """
     data = await state.get_data()
@@ -94,7 +95,7 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
         return
 
     amount_dec = Decimal(amount).quantize(Decimal("1."), rounding=ROUND_HALF_UP)
-    ttl_seconds = int(TgConfig.PAYMENT_TIME)
+    ttl_seconds = int(EnvKeys.PAYMENT_TIME)
 
     if call.data == "pay_cryptopay":
         # Crypto Bot
@@ -108,7 +109,7 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
                 currency="RUB",
                 accepted_assets="TON,USDT,BTC,ETH",
                 payload=str(call.from_user.id),
-                expires_in=TgConfig.PAYMENT_TIME
+                expires_in=EnvKeys.PAYMENT_TIME
             )
         except Exception as e:
             await call.answer(f"❌ Ошибка при создании счёта: {e}", show_alert=True)
@@ -127,39 +128,31 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
             reply_markup=payment_menu(pay_url)
         )
 
-    elif call.data == "pay_yoomoney":
-        # YooMoney
-        if not (EnvKeys.ACCOUNT_NUMBER and EnvKeys.ACCESS_TOKEN):
-            await call.answer("❌ YooMoney не настроен", show_alert=True)
-            return
-        try:
-            label, url = quick_pay(int(amount_dec), call.from_user.id)
-        except Exception as e:
-            await call.answer(f"❌ Ошибка при создании счёта: {e}", show_alert=True)
-            return
-
-        start_operation(call.from_user.id, int(amount_dec), label)
-        await state.update_data(label=label, payment_type="yoomoney")
-
-        await call.message.edit_text(
-            f'💵 Сумма пополнения: {int(amount_dec)}₽.\n'
-            f'⌛️ У вас есть {int(ttl_seconds / 60)} минут на оплату.\n'
-            f'<b>❗️ После оплаты нажмите кнопку «Проверить оплату»</b>',
-            reply_markup=payment_menu(url)
-        )
-
     elif call.data == "pay_stars":
         # Telegram Stars (XTR)
         try:
             await send_stars_invoice(
                 bot=call.message.bot,
                 chat_id=call.from_user.id,
-                amount_rub=int(amount_dec),
+                amount=int(amount_dec),
             )
         except Exception as e:
             await call.answer(f"❌ Не удалось выставить счёт в Stars: {e}", show_alert=True)
             return
 
+        await state.clear()
+
+    elif call.data == "pay_fiat":
+        # Telegram Payments (fiat провайдер)
+        try:
+            await send_fiat_invoice(
+                bot=call.message.bot,
+                chat_id=call.from_user.id,
+                amount=int(amount_dec),
+            )
+        except Exception as e:
+            await call.answer(f"❌ Не удалось выставить счёт: {e}", show_alert=True)
+            return
         await state.clear()
 
 
@@ -168,8 +161,8 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
 async def checking_payment(call: CallbackQuery, state: FSMContext):
     """
     Проверка статуса оплаты и зачисление средств.
-    Используется для CryptoPay/YooMoney.
-    Для Telegram Stars НЕ используется (там автосообщение SuccessfulPayment).
+    Используется для CryptoPay.
+    Для Telegram Payment НЕ используется (там автосообщение SuccessfulPayment).
     """
     user_id = call.from_user.id
     data = await state.get_data()
@@ -201,10 +194,10 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
 
             finish_operation(invoice_id)
 
-            if referral_id and TgConfig.REFERRAL_PERCENT:
+            if referral_id and EnvKeys.REFERRAL_PERCENT:
                 try:
                     referral_operation = int(
-                        Decimal(TgConfig.REFERRAL_PERCENT) / Decimal(100) * Decimal(balance_amount))
+                        Decimal(EnvKeys.REFERRAL_PERCENT) / Decimal(100) * Decimal(balance_amount))
                     update_balance(referral_id, referral_operation)
                     await call.bot.send_message(
                         referral_id,
@@ -228,56 +221,8 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
         else:
             await call.answer("❌ Срок действия счёта истёк.", show_alert=True)
 
-    # --- YooMoney
-    elif payment_type == "yoomoney":
-        label = data.get("label")
-        if not label:
-            await call.answer("❌ Счёт не найден. Начните заново.", show_alert=True)
-            await state.clear()
-            return
 
-        info = select_unfinished_operations(label)
-        if not info:
-            await call.answer('❌ Счёт не найден', show_alert=True)
-            return
-
-        operation_value = int(info[0])
-        try:
-            payment_status = await check_payment_status(label)
-        except Exception as e:
-            await call.answer(f"❌ Ошибка проверки: {e}", show_alert=True)
-            return
-
-        if payment_status == "success":
-            referral_id = get_user_referral(user_id)
-            finish_operation(label)
-
-            if referral_id and TgConfig.REFERRAL_PERCENT:
-                try:
-                    referral_operation = int(
-                        Decimal(TgConfig.REFERRAL_PERCENT) / Decimal(100) * Decimal(operation_value))
-                    update_balance(referral_id, referral_operation)
-                    await call.bot.send_message(
-                        referral_id,
-                        f'✅ Вы получили {referral_operation}₽ от вашего реферала {call.from_user.first_name}',
-                        reply_markup=close()
-                    )
-                except Exception:
-                    pass
-
-            create_operation(user_id, operation_value, datetime.datetime.now())
-            update_balance(user_id, operation_value)
-
-            await call.message.edit_text(
-                f'✅ Баланс пополнен на {operation_value}₽',
-                reply_markup=back('profile')
-            )
-            await state.clear()
-        else:
-            await call.answer('⌛️ Платёж ещё не оплачен.')
-
-
-# --- Хэндлер: Telegram Payments pre-checkout (Stars обязательны)
+# --- Хэндлер: Telegram Payments pre-checkout
 @router.pre_checkout_query()
 async def pre_checkout_handler(query: PreCheckoutQuery):
     """
@@ -291,15 +236,11 @@ async def pre_checkout_handler(query: PreCheckoutQuery):
 async def successful_payment_handler(message: Message):
     """
     Обработка успешной оплаты Telegram Payments.
-    - XTR: total_amount = кол-во ⭐. Рубли берем из payload (предпочтительно),
-      либо пересчитываем stars -> rub по STARS_PER_RUB.
+    - XTR (Stars): total_amount — это ⭐. Рубли берём из payload (amount) либо конвертируем ⭐ → ₽.
+    - Fiat (RUB/EUR/USD...): total_amount — в минимальных единицах (копейки/центы), делим на 100 (или 1 для JPY/KRW).
     """
     sp: SuccessfulPayment = message.successful_payment
     user_id = message.from_user.id
-
-    if sp.currency != "XTR":
-        # Для будущих провайдеров через Telegram Payments
-        return
 
     payload = {}
     try:
@@ -308,26 +249,35 @@ async def successful_payment_handler(message: Message):
     except Exception:
         payload = {}
 
-    stars = int(sp.total_amount)
-    # Если мы клали сумму в рублях в payload — используем её (во избежание расхождений по курсу/округлению)
-    if "amount_rub" in payload:
-        amount_rub = int(payload["amount_rub"])
-    else:
-        # обратная конверсия: ₽ = ⭐ / STARS_PER_RUB
-        amount_rub = int(
-            (Decimal(stars) / Decimal(str(STARS_PER_RUB))).to_integral_value(rounding=ROUND_HALF_UP)
-        )
+    amount = 0
 
-    if amount_rub <= 0:
+    if sp.currency == "XTR":
+        # Stars
+        if "amount" in payload:
+            amount = int(payload["amount"])
+        else:
+            # обратная конверсия ⭐ → ₽ по константе
+            amount = int(
+                (Decimal(int(sp.total_amount)) / Decimal(str(EnvKeys.STARS_PER_VALUE)))
+                .to_integral_value(rounding=ROUND_HALF_UP)
+            )
+    else:
+        # Fiat
+        currency = sp.currency.upper()
+        # 2 знака по умолчанию, 0 для JPY/KRW
+        multiplier = 1 if currency in {"JPY", "KRW"} else 100
+        amount = int(Decimal(sp.total_amount) / Decimal(multiplier))
+
+    if amount <= 0:
         await message.answer("❌ Не удалось определить сумму оплаты.", reply_markup=close())
         return
 
     # Реферальное начисление (если настроено)
     referral_id = get_user_referral(user_id)
-    if referral_id and TgConfig.REFERRAL_PERCENT:
+    if referral_id and EnvKeys.REFERRAL_PERCENT:
         try:
             referral_operation = int(
-                Decimal(TgConfig.REFERRAL_PERCENT) / Decimal(100) * Decimal(amount_rub)
+                Decimal(EnvKeys.REFERRAL_PERCENT) / Decimal(100) * Decimal(amount)
             )
             if referral_operation > 0:
                 update_balance(referral_id, referral_operation)
@@ -341,11 +291,12 @@ async def successful_payment_handler(message: Message):
 
     # Фиксируем операцию и пополняем баланс
     current_time = datetime.datetime.now()
-    create_operation(user_id, amount_rub, current_time)
-    update_balance(user_id, amount_rub)
+    create_operation(user_id, amount, current_time)
+    update_balance(user_id, amount)
 
+    suffix = "Telegram Stars" if sp.currency == "XTR" else "Telegram Payments"
     await message.answer(
-        f'✅ Баланс пополнен на {amount_rub}₽ (Telegram Stars)',
+        f'✅ Баланс пополнен на {amount}₽ ({suffix})',
         reply_markup=back('profile')
     )
 

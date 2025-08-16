@@ -9,7 +9,7 @@ from bot.database.methods import (
 from bot.keyboards.inline import back, question_buttons, simple_buttons
 from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
-from bot.misc import TgConfig
+from bot.misc import EnvKeys
 
 router = Router()
 
@@ -212,7 +212,7 @@ async def finish_adding_items_callback_handler(call: CallbackQuery, state):
     await call.message.edit_text("\n".join(text_lines), parse_mode="HTML", reply_markup=back("goods_management"))
 
     # опционально уведомляем группу
-    group_id = TgConfig.GROUP_ID if TgConfig.GROUP_ID != -988765433 else None
+    group_id = EnvKeys.GROUP_ID if EnvKeys.GROUP_ID != -988765433 else None
     if group_id:
         try:
             await call.message.bot.send_message(
@@ -256,7 +256,7 @@ async def finish_adding_item_callback_handler(message: Message, state):
     add_values_to_item(item_name, single_value, True)
 
     # 3) опционально уведомляем группу
-    group_id = TgConfig.GROUP_ID if TgConfig.GROUP_ID != -988765433 else None
+    group_id = EnvKeys.GROUP_ID if EnvKeys.GROUP_ID != -988765433 else None
     if group_id:
         try:
             await message.bot.send_message(

@@ -10,21 +10,18 @@
 
       - [TOKEN](https://telegram.me/BotFather)
       - [OWNER_ID](https://telegram.me/myidbot)
-      - [ACCESS_TOKEN](https://pypi.org/project/YooMoney/#access-token)
-      - [ACCOUNT_NUMBER](https://pypi.org/project/YooMoney/#account-information)
       - [CRYPTO_PAY_TOKEN](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7)
-      - [CRYPTO_PAY_TOKEN](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7)
-      - [CRYPTO_PAY_TOKEN](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7)
-
-   5. [Setup config.py](../bot/misc/config.py)
-      - CHANNEL_URL - telegram channel link (to disable, set `CHANNEL_URL: Final = 'https://t.me/'`)
-      - HELPER_URL -  telegram username for help (to disable, set `HELPER_URL: Final = None`)
-      - [GROUP_ID](https://docs.b2core.b2broker.com/how-to-articles/manage-communication-platforms/how-to-get-telegram-chat-group-and-channel-identifiers) -  telegram group ID (to disable, set `GROUP_ID: Final = None`)
-      - REFERRAL_PERCENT - percentage of the referral deposit (to disable the referral system, set `REFERRAL_PERCENT = 0`)
+      - [TELEGRAM_PROVIDER_TOKEN](https://core.telegram.org/bots/payments#getting-a-token)
+      - TELEGRAM_PAY_CURRENCY - the currency for paying the invoice
+      - STARS_PER_VALUE - the equivalent of stars per unit of currency
+      - CHANNEL_URL - telegram channel link (initially disabled)
+      - HELPER_URL - telegram username for help (initially disabled)
+      - [GROUP_ID](https://docs.b2core.b2broker.com/how-to-articles/manage-communication-platforms/how-to-get-telegram-chat-group-and-channel-identifiers) -  telegram group ID (initially disabled)
+      - REFERRAL_PERCENT - percentage of the referral deposit (initially disabled)
+      - RULES - rules for using the bot (initially disabled)
       - PAYMENT_TIME - time allotted for payment
-      - RULES - rules for using the bot (to disable, set `RULES: Final = None`)
 
-   6. Run run.py
+   5. Run run.py
 
 ### P.S.
 1. Add the bot to the channel and group you have provided and make it an admin

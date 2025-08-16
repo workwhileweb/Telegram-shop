@@ -111,9 +111,9 @@ def payment_menu(pay_url: str) -> InlineKeyboardMarkup:
 
 def get_payment_choice() -> InlineKeyboardMarkup:
     return simple_buttons([
-        ("💸 YooMoney", "pay_yoomoney"),
         ("💎 CryptoPay", "pay_cryptopay"),
         ("💫 Telegram Stars", "pay_stars"),
+        ("💳 Telegram Pay (RUB)", "pay_fiat"),
         ("🔙 Вернуться назад", "replenish_balance")
     ], per_row=1)
 

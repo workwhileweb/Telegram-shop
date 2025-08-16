@@ -1,5 +1,3 @@
-from decimal import Decimal, ROUND_HALF_UP
-
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 
@@ -35,6 +33,7 @@ async def get_bot_info(event) -> str:
 
 def _any_payment_method_enabled() -> bool:
     """Есть ли хотя бы один включённый метод оплаты."""
-    yoomoney_ok = bool(EnvKeys.ACCESS_TOKEN and EnvKeys.ACCOUNT_NUMBER)
     cryptopay_ok = bool(EnvKeys.CRYPTO_PAY_TOKEN)
-    return yoomoney_ok or cryptopay_ok
+    tg_stars_ok = bool(EnvKeys.STARS_PER_VALUE)
+    tg_pay_ok = bool(EnvKeys.TELEGRAM_PROVIDER_TOKEN)
+    return cryptopay_ok or tg_stars_ok or tg_pay_ok

@@ -9,7 +9,7 @@ from bot.database.methods import (
 from bot.keyboards.inline import back, question_buttons, simple_buttons
 from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
-from bot.misc import TgConfig
+from bot.misc import EnvKeys
 
 router = Router()
 
@@ -140,7 +140,7 @@ async def updating_item_amount(call: CallbackQuery, state):
     await call.message.edit_text("\n".join(text_lines), parse_mode="HTML", reply_markup=back('goods_management'))
 
     # Опционально: уведомление в группу/канал, если настроено
-    group_id = TgConfig.GROUP_ID if getattr(TgConfig, "GROUP_ID", None) not in (None, -988765433) else None
+    group_id = EnvKeys.GROUP_ID if getattr(EnvKeys, "GROUP_ID", None) not in (None, -988765433) else None
     if group_id:
         try:
             await call.message.bot.send_message(
@@ -386,7 +386,7 @@ async def update_item_no_infinity(call: CallbackQuery, state):
     update_item(item_old_name, item_new_name, item_description, price, category)
 
     # Опционально: уведомление в группу/канал, если настроено
-    group_id = TgConfig.GROUP_ID if getattr(TgConfig, "GROUP_ID", None) not in (None, -988765433) else None
+    group_id = EnvKeys.GROUP_ID if getattr(EnvKeys, "GROUP_ID", None) not in (None, -988765433) else None
     if group_id:
         try:
             await call.message.bot.send_message(

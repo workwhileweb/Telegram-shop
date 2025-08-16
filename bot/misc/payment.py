@@ -1,17 +1,13 @@
-import random
 import aiohttp
 import json
 import math
-import os
 
 from aiogram import Bot
 from aiogram.types import LabeledPrice
-from yoomoney import Quickpay, Client
 from typing import Optional
 from bot.misc import EnvKeys
 
-STARS_PER_RUB = float(os.getenv("STARS_PER_RUB", "0.91"))
-
+ZERO_DEC_CURRENCIES = {"JPY", "KRW"}  # без копеек/центов
 
 
 def rub_to_stars(amount_rub: int) -> int:
@@ -19,26 +15,26 @@ def rub_to_stars(amount_rub: int) -> int:
     Конвертирует сумму в рублях в целое число звёзд.
     Округляем вверх (ceil), чтобы не занизить списание.
     """
-    return int(math.ceil(float(amount_rub) * STARS_PER_RUB))
+    return int(math.ceil(float(amount_rub) * EnvKeys.STARS_PER_VALUE))
 
 
 async def send_stars_invoice(
-    bot: Bot,
-    chat_id: int,
-    amount_rub: int,
-    title: str = "Пополнение баланса",
-    description: str | None = None,
-    payload_extra: dict | None = None,
+        bot: Bot,
+        chat_id: int,
+        amount: int,
+        title: str = "Пополнение баланса",
+        description: str | None = None,
+        payload_extra: dict | None = None,
 ):
     """
     Отправляет инвойс Telegram Stars (currency='XTR', provider_token='').
     total_amount задаётся в наименьших единицах XTR (звёзды * 100).
     """
-    stars = rub_to_stars(amount_rub)
+    stars = rub_to_stars(amount)
     prices = [LabeledPrice(label=f"{stars} ⭐️", amount=stars)]
     payload = {
         "op": "topup_balance_stars",
-        "amount_rub": int(amount_rub),
+        "amount_rub": int(amount),
         "stars": stars,
     }
     if payload_extra:
@@ -47,7 +43,7 @@ async def send_stars_invoice(
     await bot.send_invoice(
         chat_id=chat_id,
         title=title,
-        description=description or f"Пополнение на {amount_rub}₽ через Telegram Stars",
+        description=description or f"Пополнение на {amount}₽ через Telegram Stars",
         payload=json.dumps(payload),
         provider_token="",  # для Stars должен быть пустым
         currency="XTR",
@@ -55,25 +51,38 @@ async def send_stars_invoice(
     )
 
 
-def quick_pay(amount, user_id):
-    bill = Quickpay(
-        receiver=EnvKeys.ACCOUNT_NUMBER,
-        quickpay_form="shop",
-        targets="Sponsor",
-        paymentType="SB",
-        sum=amount,
-        label=str(user_id) + '_' + str(random.randint(1000000000, 9999999999))
+def _minor_units_for(currency: str) -> int:
+    return 1 if currency.upper() in ZERO_DEC_CURRENCIES else 100
+
+
+async def send_fiat_invoice(*, bot, chat_id: int, amount: int,
+                            title: str = "Пополнение баланса",
+                            description: str = "Оплата через Telegram Payments (карта)"):
+    """
+    Выставляет инвойс через Telegram Payments (fiat-провайдер).
+    amount — сумма (в основных единицах).
+    """
+    provider_token = EnvKeys.TELEGRAM_PROVIDER_TOKEN
+    if not provider_token:
+        raise RuntimeError("TELEGRAM_PROVIDER_TOKEN is not set")
+
+    currency = (getattr(EnvKeys, "TELEGRAM_PAY_CURRENCY", None) or "RUB").upper()
+    multiplier = _minor_units_for(currency)
+    amount_minor = int(amount) * multiplier
+
+    prices = [LabeledPrice(label=f"Пополнение {amount} {currency}", amount=amount_minor)]
+    payload = json.dumps({"type": "balance_topup", "amount": int(amount)})
+
+    await bot.send_invoice(
+        chat_id=chat_id,
+        title=title,
+        description=description,
+        payload=payload,
+        provider_token=provider_token,
+        currency=currency,
+        prices=prices,
+        request_timeout=60,
     )
-    label = bill.label
-    url = bill.base_url
-    return label, url
-
-
-async def check_payment_status(label: str):
-    client = Client(EnvKeys.ACCESS_TOKEN)
-    history = client.operation_history(label=label)
-    for operation in history.operations:
-        return operation.status
 
 
 class CryptoPayAPI:

@@ -45,9 +45,9 @@ There are a couple of buttons in the admin panel to control all processes in the
     - Sqlalchemy
 
 - #### Payment:
-    - Yoomoney
     - Crypto Bot
     - Telegram Stars
+    - Telegram Payment
 
 - #### Debug:
     - logger
