@@ -113,6 +113,7 @@ def get_payment_choice() -> InlineKeyboardMarkup:
     return simple_buttons([
         ("💸 YooMoney", "pay_yoomoney"),
         ("💎 CryptoPay", "pay_cryptopay"),
+        ("💫 Telegram Stars", "pay_stars"),
         ("🔙 Вернуться назад", "replenish_balance")
     ], per_row=1)
 

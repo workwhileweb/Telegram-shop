@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
@@ -30,4 +31,18 @@ async def start_bot():
     dp = Dispatcher(storage=MemoryStorage())
 
     await __on_start_up(dp)
-    await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+
+    try:
+        await dp.start_polling(bot, allowed_updates=["message", "callback_query", "pre_checkout_query"],
+                               handle_signals=False)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        try:
+            await dp.fsm.storage.close()
+        except Exception:
+            pass
+        try:
+            await bot.session.close()
+        except Exception:
+            pass

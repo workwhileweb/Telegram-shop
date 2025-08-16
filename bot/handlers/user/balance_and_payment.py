@@ -1,8 +1,9 @@
+import json
 import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, PreCheckoutQuery, SuccessfulPayment
 from aiogram.fsm.context import FSMContext
 from aiogram.filters.state import StatesGroup, State
 
@@ -15,7 +16,7 @@ from bot.keyboards import back, payment_menu, close, get_payment_choice
 from bot.logger_mesh import audit_logger
 from bot.misc import TgConfig, EnvKeys
 from bot.handlers.other import _any_payment_method_enabled
-from bot.misc.payment import quick_pay, check_payment_status, CryptoPayAPI
+from bot.misc.payment import quick_pay, check_payment_status, CryptoPayAPI, send_stars_invoice, STARS_PER_RUB
 from bot.filters import ValidAmountFilter
 
 router = Router()
@@ -77,10 +78,12 @@ async def invalid_amount(message: Message, state: FSMContext):
 
 
 # --- Хэндлер: выбор способа оплаты
-@router.callback_query(BalanceStates.waiting_payment, F.data.in_(['pay_yoomoney', 'pay_cryptopay']))
+@router.callback_query(BalanceStates.waiting_payment, F.data.in_(['pay_yoomoney', 'pay_cryptopay', "pay_stars"]))
 async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
     """
     Создаёт платёж для выбранного способа и предлагает пользователю оплатить.
+    Для Telegram Stars отправляем инвойс через Telegram Payments (currency='XTR'),
+    дальше срабатывают общие pre_checkout и successful_payment хэндлеры.
     """
     data = await state.get_data()
     amount = data.get('amount')
@@ -94,6 +97,7 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
     ttl_seconds = int(TgConfig.PAYMENT_TIME)
 
     if call.data == "pay_cryptopay":
+        # Crypto Bot
         if not EnvKeys.CRYPTO_PAY_TOKEN:
             await call.answer("❌ CryptoPay не настроен", show_alert=True)
             return
@@ -122,6 +126,7 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
             f"<b>❗️ После оплаты нажмите кнопку «Проверить оплату»</b>",
             reply_markup=payment_menu(pay_url)
         )
+
     elif call.data == "pay_yoomoney":
         # YooMoney
         if not (EnvKeys.ACCOUNT_NUMBER and EnvKeys.ACCESS_TOKEN):
@@ -143,12 +148,28 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
             reply_markup=payment_menu(url)
         )
 
+    elif call.data == "pay_stars":
+        # Telegram Stars (XTR)
+        try:
+            await send_stars_invoice(
+                bot=call.message.bot,
+                chat_id=call.from_user.id,
+                amount_rub=int(amount_dec),
+            )
+        except Exception as e:
+            await call.answer(f"❌ Не удалось выставить счёт в Stars: {e}", show_alert=True)
+            return
 
-# --- Хэндлер: проверка оплаты
+        await state.clear()
+
+
+# --- Хэндлер: проверка оплаты (для методов, требующих ручной проверки)
 @router.callback_query(F.data == "check")
 async def checking_payment(call: CallbackQuery, state: FSMContext):
     """
     Проверка статуса оплаты и зачисление средств.
+    Используется для CryptoPay/YooMoney.
+    Для Telegram Stars НЕ используется (там автосообщение SuccessfulPayment).
     """
     user_id = call.from_user.id
     data = await state.get_data()
@@ -254,6 +275,79 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
             await state.clear()
         else:
             await call.answer('⌛️ Платёж ещё не оплачен.')
+
+
+# --- Хэндлер: Telegram Payments pre-checkout (Stars обязательны)
+@router.pre_checkout_query()
+async def pre_checkout_handler(query: PreCheckoutQuery):
+    """
+    Telegram требует обязательно ответить ok=True перед оплатой.
+    """
+    await query.answer(ok=True)
+
+
+# --- Хэндлер: успешная оплата через Telegram Payments (в т.ч. Stars)
+@router.message(F.successful_payment)
+async def successful_payment_handler(message: Message):
+    """
+    Обработка успешной оплаты Telegram Payments.
+    - XTR: total_amount = кол-во ⭐. Рубли берем из payload (предпочтительно),
+      либо пересчитываем stars -> rub по STARS_PER_RUB.
+    """
+    sp: SuccessfulPayment = message.successful_payment
+    user_id = message.from_user.id
+
+    if sp.currency != "XTR":
+        # Для будущих провайдеров через Telegram Payments
+        return
+
+    payload = {}
+    try:
+        if sp.invoice_payload:
+            payload = json.loads(sp.invoice_payload)
+    except Exception:
+        payload = {}
+
+    stars = int(sp.total_amount)
+    # Если мы клали сумму в рублях в payload — используем её (во избежание расхождений по курсу/округлению)
+    if "amount_rub" in payload:
+        amount_rub = int(payload["amount_rub"])
+    else:
+        # обратная конверсия: ₽ = ⭐ / STARS_PER_RUB
+        amount_rub = int(
+            (Decimal(stars) / Decimal(str(STARS_PER_RUB))).to_integral_value(rounding=ROUND_HALF_UP)
+        )
+
+    if amount_rub <= 0:
+        await message.answer("❌ Не удалось определить сумму оплаты.", reply_markup=close())
+        return
+
+    # Реферальное начисление (если настроено)
+    referral_id = get_user_referral(user_id)
+    if referral_id and TgConfig.REFERRAL_PERCENT:
+        try:
+            referral_operation = int(
+                Decimal(TgConfig.REFERRAL_PERCENT) / Decimal(100) * Decimal(amount_rub)
+            )
+            if referral_operation > 0:
+                update_balance(referral_id, referral_operation)
+                await message.bot.send_message(
+                    referral_id,
+                    f'✅ Вы получили {referral_operation}₽ от вашего реферала {message.from_user.first_name}',
+                    reply_markup=close()
+                )
+        except Exception:
+            pass
+
+    # Фиксируем операцию и пополняем баланс
+    current_time = datetime.datetime.now()
+    create_operation(user_id, amount_rub, current_time)
+    update_balance(user_id, amount_rub)
+
+    await message.answer(
+        f'✅ Баланс пополнен на {amount_rub}₽ (Telegram Stars)',
+        reply_markup=back('profile')
+    )
 
 
 # --- Хэндлер: покупка товара

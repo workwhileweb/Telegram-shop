@@ -49,7 +49,8 @@ def configure_logging(console: bool = False, debug: bool = False) -> tuple[loggi
 
     # 3) приглушаем внешние логгеры
     for name in [
-        "aiogram", "aiogram.event", "aiogram.dispatcher", "aiogram.client", "aiohttp",
+        "aiogram", "aiogram.event", "aiogram.dispatcher", "aiogram.client", "aiohttp", "aiogram.client.telegram",
+        "aiogram.client.session.aiohttp", "aiohttp.client", "aiohttp.access"
     ]:
         logging.getLogger(name).setLevel(logging.WARNING)
         logging.getLogger(name).propagate = False

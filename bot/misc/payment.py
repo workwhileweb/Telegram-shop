@@ -1,8 +1,58 @@
-from yoomoney import Quickpay, Client
 import random
 import aiohttp
+import json
+import math
+import os
+
+from aiogram import Bot
+from aiogram.types import LabeledPrice
+from yoomoney import Quickpay, Client
 from typing import Optional
 from bot.misc import EnvKeys
+
+STARS_PER_RUB = float(os.getenv("STARS_PER_RUB", "0.91"))
+
+
+
+def rub_to_stars(amount_rub: int) -> int:
+    """
+    Конвертирует сумму в рублях в целое число звёзд.
+    Округляем вверх (ceil), чтобы не занизить списание.
+    """
+    return int(math.ceil(float(amount_rub) * STARS_PER_RUB))
+
+
+async def send_stars_invoice(
+    bot: Bot,
+    chat_id: int,
+    amount_rub: int,
+    title: str = "Пополнение баланса",
+    description: str | None = None,
+    payload_extra: dict | None = None,
+):
+    """
+    Отправляет инвойс Telegram Stars (currency='XTR', provider_token='').
+    total_amount задаётся в наименьших единицах XTR (звёзды * 100).
+    """
+    stars = rub_to_stars(amount_rub)
+    prices = [LabeledPrice(label=f"{stars} ⭐️", amount=stars)]
+    payload = {
+        "op": "topup_balance_stars",
+        "amount_rub": int(amount_rub),
+        "stars": stars,
+    }
+    if payload_extra:
+        payload.update(payload_extra)
+
+    await bot.send_invoice(
+        chat_id=chat_id,
+        title=title,
+        description=description or f"Пополнение на {amount_rub}₽ через Telegram Stars",
+        payload=json.dumps(payload),
+        provider_token="",  # для Stars должен быть пустым
+        currency="XTR",
+        prices=prices,
+    )
 
 
 def quick_pay(amount, user_id):
