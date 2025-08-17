@@ -8,7 +8,7 @@ from bot.database.models import User, ItemValues, Goods, Categories, BoughtGoods
 from bot.database import Database
 
 
-def create_user(telegram_id: int, registration_date: datetime, referral_id: int, role: int = 1) -> None:
+def create_user(telegram_id: int, registration_date: datetime, referral_id: int | str, role: int = 1) -> None:
     session = Database().session
     try:
         session.query(User.telegram_id).filter(User.telegram_id == telegram_id).one()
@@ -34,7 +34,7 @@ def create_item(item_name: str, item_description: str, item_price: int, category
 
 def add_values_to_item(item_name: str, value: str, is_infinity: bool) -> bool:
     """
-    True  — вставлено новое значение
+    True — вставлено новое значение
     False — значение уже существует (дубликат) или пустое
     """
     session = Database().session
