@@ -25,7 +25,7 @@ async def start_bot():
         default=DefaultBotProperties(
             parse_mode="HTML",
             link_preview_is_disabled=False,
-            protect_content=False  # если нужно — запрет пересылки
+            protect_content=False  # if necessary, prohibit forwarding
         ),
     )
     dp = Dispatcher(storage=MemoryStorage())

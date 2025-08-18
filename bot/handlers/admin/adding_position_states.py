@@ -10,19 +10,20 @@ from bot.keyboards.inline import back, question_buttons, simple_buttons
 from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
 from bot.misc import EnvKeys
+from bot.i18n import localize
 
 router = Router()
 
 
 class AddItemFSM(StatesGroup):
     """
-    FSM для пошагового создания позиции (товара):
-    1) имя,
-    2) описание,
-    3) цена,
-    4) категория,
-    5) режим (бесконечный или нет),
-    6) ввод значений товара (одно / много).
+    FSM for step-by-step creation of a position (product):
+    1) name,
+    2) description,
+    3) price,
+    4) category,
+    5) mode (infinite or not),
+    6) input product values (single / multiple).
     """
     waiting_item_name = State()
     waiting_item_description = State()
@@ -33,139 +34,138 @@ class AddItemFSM(StatesGroup):
     waiting_single_value = State()
 
 
-# --- Старт сценария создания позиции (требуются права SHOP_MANAGE)
+# --- Start creation scenario (SHOP_MANAGE permission required)
 @router.callback_query(F.data == 'add_item', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def add_item_callback_handler(call: CallbackQuery, state):
     """
-    Запрашиваем у администратора имя новой позиции.
+    Ask administrator for a new position name.
     """
-    await call.message.edit_text('Введите название позиции', reply_markup=back("goods_management"))
+    await call.message.edit_text(localize('admin.goods.add.prompt.name'), reply_markup=back("goods_management"))
     await state.set_state(AddItemFSM.waiting_item_name)
 
 
-# --- Проверка имени позиции (не должно существовать)
+# --- Validate position name (must not exist)
 @router.message(AddItemFSM.waiting_item_name, F.text)
 async def check_item_name_for_add(message: Message, state):
     """
-    Если позиция уже существует — сообщаем; иначе сохраняем имя и просим описание.
+    If position already exists — inform the user; otherwise save name and ask for description.
     """
-    item_name = message.text.strip()
+    item_name = (message.text or "").strip()
     item = check_item(item_name)
     if item:
         await message.answer(
-            '❌ Позиция не может быть создана (такая позиция уже существует)',
+            localize('admin.goods.add.name.exists'),
             reply_markup=back('goods_management')
         )
         return
 
     await state.update_data(item_name=item_name)
-    await message.answer('Введите описание для позиции:', reply_markup=back('goods_management'))
+    await message.answer(localize('admin.goods.add.prompt.description'), reply_markup=back('goods_management'))
     await state.set_state(AddItemFSM.waiting_item_description)
 
 
-# --- Ввод описания
+# --- Input description
 @router.message(AddItemFSM.waiting_item_description, F.text)
 async def add_item_description(message: Message, state):
     """
-    Сохраняем описание и переходим к цене.
+    Save description and proceed to price input.
     """
-    await state.update_data(item_description=message.text.strip())
-    await message.answer('Введите цену для позиции (число в ₽):', reply_markup=back('goods_management'))
+    await state.update_data(item_description=(message.text or "").strip())
+    await message.answer(localize('admin.goods.add.prompt.price', currency=EnvKeys.PAY_CURRENCY), reply_markup=back('goods_management'))
     await state.set_state(AddItemFSM.waiting_item_price)
 
 
-# --- Ввод цены
+# --- Input price
 @router.message(AddItemFSM.waiting_item_price, F.text)
 async def add_item_price(message: Message, state):
     """
-    Валидируем цену и спрашиваем категорию.
+    Validate price and ask for category.
     """
-    price_text = message.text.strip()
+    price_text = (message.text or "").strip()
     if not price_text.isdigit():
-        await message.answer('⚠️ Некорректное значение цены. Введите число.', reply_markup=back('goods_management'))
+        await message.answer(localize('admin.goods.add.price.invalid'), reply_markup=back('goods_management'))
         return
 
     await state.update_data(item_price=int(price_text))
-    await message.answer('Введите категорию, к которой будет относиться позиция:',
-                         reply_markup=back('goods_management'))
+    await message.answer(localize('admin.goods.add.prompt.category'), reply_markup=back('goods_management'))
     await state.set_state(AddItemFSM.waiting_category)
 
 
-# --- Проверка категории
+# --- Validate category
 @router.message(AddItemFSM.waiting_category, F.text)
 async def check_category_for_add_item(message: Message, state):
     """
-    Категория должна существовать; затем спрашиваем про бесконечность товара.
+    Category must exist; then ask about infinite mode.
     """
-    category_name = message.text.strip()
+    category_name = (message.text or "").strip()
     category = check_category(category_name)
     if not category:
         await message.answer(
-            '❌ Позиция не может быть создана (категория для привязки введена неверно)',
+            localize('admin.goods.add.category.not_found'),
             reply_markup=back('goods_management')
         )
         return
 
     await state.update_data(item_category=category_name)
     await message.answer(
-        'У этой позиции будут бесконечные товары? (всем будет высылаться одна копия значения)',
+        localize('admin.goods.add.infinity.question'),
         reply_markup=question_buttons('infinity', 'goods_management')
     )
     await state.set_state(AddItemFSM.waiting_infinity)
 
 
-# --- Выбор режима: бесконечные товары / конечные
+# --- Choose mode: infinite / finite
 @router.callback_query(F.data.startswith('infinity_'), AddItemFSM.waiting_infinity)
 async def adding_value_to_position(call: CallbackQuery, state):
     """
-    Если бесконечно — ждём одно значение.
-    Если нет — собираем множество значений до завершения.
+    If infinite — wait for a single value.
+    If not — collect multiple values until completion.
     """
     answer = call.data.split('_')[1]
     await state.update_data(is_infinity=(answer == 'yes'))
 
     if answer == 'no':
-        # Кнопка “Завершить добавление” появится после первого значения
+        # “Finish adding” button will appear after the first value is provided
         await call.message.edit_text(
-            'Введите товары для позиции по одному сообщению.\n'
-            'Когда закончите ввод — нажмите «Добавить указанные товары».',
+            localize('admin.goods.add.values.prompt_multi'),
             reply_markup=back("goods_management")
         )
         await state.set_state(AddItemFSM.waiting_values)
     else:
         await call.message.edit_text(
-            'Введите одно значение товара для позиции:',
+            localize('admin.goods.add.single.prompt_value'),
             reply_markup=back('goods_management')
         )
         await state.set_state(AddItemFSM.waiting_single_value)
 
 
-# --- Сбор значений (НЕ бесконечный режим)
+# --- Collect values (NON-infinite mode)
 @router.message(AddItemFSM.waiting_values, F.text)
 async def collect_item_value(message: Message, state):
     """
-    Копим значения в FSM-состоянии. После первого — даём кнопку “Завершить”.
+    Accumulate values in FSM state. After the first one — show a “Finish adding” button.
     """
     data = await state.get_data()
     values = data.get('item_values', [])
-    values.append(message.text)
+    value = (message.text or "")
+    values.append(value)
     await state.update_data(item_values=values)
 
-    # Показываем прогресс и кнопку “Завершить добавление”
+    # Show progress + “Finish adding” button
     await message.answer(
-        f'✅ Товар «{message.text}» добавлен в список ({len(values)} шт.)',
+        localize('admin.goods.add.values.added', value=value, count=len(values)),
         reply_markup=simple_buttons([
-            ("Добавить указанные товары", "finish_adding_items"),
-            ("⬅️ Назад", "goods_management")
+            (localize('btn.add_values_finish'), "finish_adding_items"),
+            (localize('btn.back'), "goods_management")
         ], per_row=1)
     )
 
 
-# --- Завершить добавление всех значений (НЕ бесконечный режим)
+# --- Finish adding all values (NON-infinite mode)
 @router.callback_query(F.data == 'finish_adding_items', AddItemFSM.waiting_values)
 async def finish_adding_items_callback_handler(call: CallbackQuery, state):
     """
-    Создаём позицию, добавляем все собранные значения, уведомляем группу (если задана).
+    Create a position, add all collected values, notify group (if configured).
     """
     data = await state.get_data()
     item_name = data.get('item_name')
@@ -180,7 +180,7 @@ async def finish_adding_items_callback_handler(call: CallbackQuery, state):
     skipped_invalid = 0
     seen_in_batch: set[str] = set()
 
-    # создаём позицию
+    # Create position
     create_item(item_name, item_description, item_price, category_name)
 
     for v in raw_values:
@@ -189,38 +189,41 @@ async def finish_adding_items_callback_handler(call: CallbackQuery, state):
             skipped_invalid += 1
             continue
 
-        # Дубликат внутри текущей пачки
+        # Duplicate within the current input batch
         if v_norm in seen_in_batch:
             skipped_batch_dup += 1
             continue
         seen_in_batch.add(v_norm)
 
-        # Пытаемся вставить — False означает, что такое уже есть в БД
+        # Try to insert — False means it already exists in DB
         if add_values_to_item(item_name, v_norm, False):
             added += 1
         else:
             skipped_db_dup += 1
 
-    text_lines = [f"✅ Позиция создана.", f"📦 Добавлено товаров: <b>{added}</b>"]
+    text_lines = [
+        localize('admin.goods.add.result.created'),
+        localize('admin.goods.add.result.added', n=added)
+    ]
     if skipped_db_dup:
-        text_lines.append(f"↩️ Пропущено (уже были в БД): <b>{skipped_db_dup}</b>")
+        text_lines.append(localize('admin.goods.add.result.skipped_db_dup', n=skipped_db_dup))
     if skipped_batch_dup:
-        text_lines.append(f"🔁 Пропущено (дубль в вводе): <b>{skipped_batch_dup}</b>")
+        text_lines.append(localize('admin.goods.add.result.skipped_batch_dup', n=skipped_batch_dup))
     if skipped_invalid:
-        text_lines.append(f"🚫 Пропущено (пустые/некорректные): <b>{skipped_invalid}</b>")
+        text_lines.append(localize('admin.goods.add.result.skipped_invalid', n=skipped_invalid))
 
     await call.message.edit_text("\n".join(text_lines), parse_mode="HTML", reply_markup=back("goods_management"))
 
-    # опционально уведомляем группу
+    # Optionally notify a group
     group_id = EnvKeys.GROUP_ID if EnvKeys.GROUP_ID != -988765433 else None
     if group_id:
         try:
             await call.message.bot.send_message(
                 chat_id=group_id,
                 text=(
-                    f'🎁 Залив\n'
-                    f'🏷️ Товар: <b>{item_name}</b>\n'
-                    f'📦 Количество: <b>{added}</b>'
+                    f"🎁 {localize('shop.group.new_upload')}\n"
+                    f"🏷️ {localize('shop.group.item')}: <b>{item_name}</b>\n"
+                    f"📦 {localize('shop.group.count')}: <b>{added}</b>"
                 ),
                 parse_mode='HTML'
             )
@@ -229,15 +232,16 @@ async def finish_adding_items_callback_handler(call: CallbackQuery, state):
 
     admin_info = await call.message.bot.get_chat(call.from_user.id)
     audit_logger.info(
-        f"Пользователь {call.from_user.id} ({admin_info.first_name}) создал новую позицию \"{item_name}\"")
+        f'Admin {call.from_user.id} ({admin_info.first_name}) created a new item "{item_name}"'
+    )
     await state.clear()
 
 
-# --- Ввод одного значения (Бесконечный режим)
+# --- Single value input (Infinite mode)
 @router.message(AddItemFSM.waiting_single_value, F.text)
 async def finish_adding_item_callback_handler(message: Message, state):
     """
-    Создаём позицию и добавляем одно “бесконечное” значение. Уведомляем группу (если задана).
+    Create a position and add one “infinite” value. Notify group (if configured).
     """
     data = await state.get_data()
     item_name = data.get('item_name')
@@ -245,36 +249,35 @@ async def finish_adding_item_callback_handler(message: Message, state):
     item_price = data.get('item_price')
     category_name = data.get('item_category')
 
-    single_value = message.text.strip()
+    single_value = (message.text or "").strip()
     if not single_value:
-        await message.answer('⚠️ Значение не может быть пустым.', reply_markup=back('goods_management'))
+        await message.answer(localize('admin.goods.add.single.empty'), reply_markup=back('goods_management'))
         return
 
-    # 1) создаём позицию
+    # 1) Create position
     create_item(item_name, item_description, item_price, category_name)
-    # 2) добавляем 1 «бесконечное» значение
+    # 2) Add 1 “infinite” value
     add_values_to_item(item_name, single_value, True)
 
-    # 3) опционально уведомляем группу
+    # 3) Optionally notify a group
     group_id = EnvKeys.GROUP_ID if EnvKeys.GROUP_ID != -988765433 else None
     if group_id:
         try:
             await message.bot.send_message(
                 chat_id=group_id,
                 text=(
-                    f'🎁 Залив\n'
-                    f'🏷️ Товар: <b>{item_name}</b>\n'
-                    f'📦 Количество: <b>∞</b>'
+                    f"🎁 {localize('shop.group.new_upload')}\n"
+                    f"🏷️ {localize('shop.group.item')}: <b>{item_name}</b>\n"
+                    f"📦 {localize('shop.group.count')}: <b>∞</b>"
                 ),
                 parse_mode='HTML'
             )
         except Exception:
             pass
 
-    await message.answer('✅ Позиция создана, значение добавлено', reply_markup=back('goods_management'))
+    await message.answer(localize('admin.goods.add.single.created'), reply_markup=back('goods_management'))
     admin_info = await message.bot.get_chat(message.from_user.id)
     audit_logger.info(
-        f'Пользователь {message.from_user.id} ({admin_info.first_name}) '
-        f'создал бесконечную позицию "{item_name}"'
+        f'Admin {message.from_user.id} ({admin_info.first_name}) created an infinite item "{item_name}"'
     )
     await state.clear()

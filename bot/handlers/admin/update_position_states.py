@@ -10,21 +10,22 @@ from bot.keyboards.inline import back, question_buttons, simple_buttons
 from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
 from bot.misc import EnvKeys
+from bot.i18n import localize
 
 router = Router()
 
 
 class UpdateItemFSM(StatesGroup):
     """
-    FSM для сценариев обновления позиции:
-    1) Добавление количества (values) к существующей позиции,
-    2) Полное обновление позиции (имя, описание, цена, бесконечность/обычная, values).
+    FSM for updating an item:
+    1) Add item values (stock) to an existing position.
+    2) Full update (name, description, price, infinity/regular, values).
     """
-    # Добавление товаров к позиции
+    # Add values to an item
     waiting_item_name_for_amount_upd = State()
     waiting_item_values_upd = State()
 
-    # Полное обновление позиции
+    # Full update
     waiting_item_name_for_update = State()
     waiting_item_new_name = State()
     waiting_item_description = State()
@@ -35,42 +36,46 @@ class UpdateItemFSM(StatesGroup):
 
 
 # ==============================
-#  БЛОК 1. Добавление товаров к позиции
+#  Block 1. Add values to an item
 # ==============================
 
 @router.callback_query(F.data == 'update_item_amount', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def update_item_amount_callback_handler(call: CallbackQuery, state):
-    """
-    Запускает сценарий добавления товаров к существующей позиции.
-    """
-    await call.message.edit_text('Введите название позиции', reply_markup=back("goods_management"))
+    """Starts the flow for adding values (stock) to an existing item."""
+    await call.message.edit_text(
+        localize('admin.goods.update.amount.prompt.name'),
+        reply_markup=back("goods_management")
+    )
     await state.set_state(UpdateItemFSM.waiting_item_name_for_amount_upd)
 
 
 @router.message(UpdateItemFSM.waiting_item_name_for_amount_upd, F.text)
 async def check_item_name_for_amount_upd(message: Message, state):
     """
-    Проверяем, что позиция существует и что она НЕ бесконечная.
-    Если позиция бесконечная — values добавлять нельзя.
+    Validate that item exists and is NOT infinite.
+    If item is infinite — values cannot be added.
     """
     item_name = message.text.strip()
     item = check_item(item_name)
     if not item:
-        await message.answer('❌ Товар не может быть добавлен (такой позиции не существует)',
-                             reply_markup=back('goods_management'))
+        await message.answer(
+            localize('admin.goods.update.amount.not_exists'),
+            reply_markup=back('goods_management')
+        )
         return
 
-    # Если позиция бесконечная, дополнять values логически нельзя
+    # If item is infinite, we logically can't add individual values
     if check_value(item_name):
-        await message.answer('❌ Товар не может быть добавлен (у данной позиции бесконечный товар)',
-                             reply_markup=back('goods_management'))
+        await message.answer(
+            localize('admin.goods.update.amount.infinity_forbidden'),
+            reply_markup=back('goods_management')
+        )
         return
 
-    # Иначе начинаем копить values
+    # Otherwise start collecting values
     await state.update_data(item_name=item_name)
     await message.answer(
-        'Введите товары для позиции по одному сообщению.\n'
-        'Когда закончите ввод — нажмите «Добавить указанные товары».',
+        localize('admin.goods.add.values.prompt_multi'),
         reply_markup=back("goods_management")
     )
     await state.set_state(UpdateItemFSM.waiting_item_values_upd)
@@ -79,8 +84,8 @@ async def check_item_name_for_amount_upd(message: Message, state):
 @router.message(UpdateItemFSM.waiting_item_values_upd, F.text)
 async def updating_item_values(message: Message, state):
     """
-    Накапливаем values для позиции (обычный режим).
-    Кнопка “Завершить” показывается после первого значения.
+    Accumulate values for the item (regular mode).
+    Show "Finish" button after first value.
     """
     data = await state.get_data()
     values = data.get('item_values', [])
@@ -88,19 +93,17 @@ async def updating_item_values(message: Message, state):
     await state.update_data(item_values=values)
 
     await message.answer(
-        f'✅ Товар «{message.text}» добавлен в список ({len(values)} шт.)',
+        localize('admin.goods.add.values.added', value=message.text, count=len(values)),
         reply_markup=simple_buttons([
-            ("Добавить указанные товары", "finish_updating_items"),
-            ("⬅️ Назад", "goods_management")
+            (localize('btn.add_values_finish'), "finish_updating_items"),
+            (localize('btn.back'), "goods_management")
         ], per_row=1)
     )
 
 
 @router.callback_query(F.data == 'finish_updating_items', UpdateItemFSM.waiting_item_values_upd)
 async def updating_item_amount(call: CallbackQuery, state):
-    """
-    Завершаем добавление новых товаров (values) к позиции.
-    """
+    """Finish adding new item values."""
     data = await state.get_data()
     item_name = data.get('item_name')
     raw_values: list[str] = data.get("item_values", []) or []
@@ -117,123 +120,122 @@ async def updating_item_amount(call: CallbackQuery, state):
             skipped_invalid += 1
             continue
 
-        # Дубликат внутри текущей пачки
+        # Duplicate inside current batch
         if v_norm in seen_in_batch:
             skipped_batch_dup += 1
             continue
         seen_in_batch.add(v_norm)
 
-        # Пытаемся вставить — False означает, что такое уже есть в БД
+        # Try insert — False means it already exists in DB
         if add_values_to_item(item_name, v_norm, False):
             added += 1
         else:
             skipped_db_dup += 1
 
-    text_lines = [f"✅ Товары добавлены", f"📦 Добавлено товаров: <b>{added}</b>"]
+    text_lines = [
+        localize('admin.goods.update.values.result.title'),
+        localize('admin.goods.add.result.added', n=added),
+    ]
     if skipped_db_dup:
-        text_lines.append(f"↩️ Пропущено (уже были в БД): <b>{skipped_db_dup}</b>")
+        text_lines.append(localize('admin.goods.add.result.skipped_db_dup', n=skipped_db_dup))
     if skipped_batch_dup:
-        text_lines.append(f"🔁 Пропущено (дубль в вводе): <b>{skipped_batch_dup}</b>")
+        text_lines.append(localize('admin.goods.add.result.skipped_batch_dup', n=skipped_batch_dup))
     if skipped_invalid:
-        text_lines.append(f"🚫 Пропущено (пустые/некорректные): <b>{skipped_invalid}</b>")
+        text_lines.append(localize('admin.goods.add.result.skipped_invalid', n=skipped_invalid))
 
     await call.message.edit_text("\n".join(text_lines), parse_mode="HTML", reply_markup=back('goods_management'))
 
-    # Опционально: уведомление в группу/канал, если настроено
+    # Optional: group/channel notification (if configured)
     group_id = EnvKeys.GROUP_ID if getattr(EnvKeys, "GROUP_ID", None) not in (None, -988765433) else None
     if group_id:
         try:
             await call.message.bot.send_message(
                 chat_id=group_id,
-                text=(f'🎁 Залив\n'
-                      f'🏷️ Товар: <b>{item_name}</b>\n'
-                      f'📦 Количество: <b>{added}</b>'),
+                text=(
+                    f'🎁 {localize("shop.group.new_upload")}\n'
+                    f'🏷️ {localize("shop.group.item")}: <b>{item_name}</b>\n'
+                    f'📦 {localize("shop.group.count")}: <b>{added}</b>'
+                ),
                 parse_mode='HTML'
             )
         except Exception:
-            # Не мешаем сценарию, если отправка не удалась
+            # Don't break the flow if sending failed
             pass
 
     admin_info = await call.message.bot.get_chat(call.from_user.id)
     audit_logger.info(
-        f'Админ {call.from_user.id} ({admin_info.first_name}) добавил к позиции "{item_name}" {added} шт.')
+        f'Admin {call.from_user.id} ({admin_info.first_name}) added {added} value(s) to item "{item_name}".'
+    )
     await state.clear()
 
 
 # ==============================
-#  БЛОК 2. Полное обновление позиции
+#  Block 2. Full item update
 # ==============================
 
 @router.callback_query(F.data == 'update_item', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def update_item_callback_handler(call: CallbackQuery, state):
-    """
-    Запускает сценарий полного обновления позиции.
-    """
-    await call.message.edit_text('Введите название позиции', reply_markup=back("goods_management"))
+    """Starts the full update flow."""
+    await call.message.edit_text(localize('admin.goods.update.prompt.name'), reply_markup=back("goods_management"))
     await state.set_state(UpdateItemFSM.waiting_item_name_for_update)
 
 
 @router.message(UpdateItemFSM.waiting_item_name_for_update, F.text)
 async def check_item_name_for_update(message: Message, state):
-    """
-    Проверка существования позиции. Если есть — запрашиваем новое имя.
-    """
+    """Validate item and ask for a new name."""
     item_name = message.text.strip()
     item = check_item(item_name)
     if not item:
-        await message.answer('❌ Позиция не может быть изменена (такой позиции не существует)',
-                             reply_markup=back('goods_management'))
+        await message.answer(
+            localize('admin.goods.update.not_exists'),
+            reply_markup=back('goods_management')
+        )
         return
 
     await state.update_data(item_old_name=item_name, item_category=item['category_name'])
-    await message.answer('Введите новое имя для позиции:', reply_markup=back('goods_management'))
+    await message.answer(localize('admin.goods.update.prompt.new_name'), reply_markup=back('goods_management'))
     await state.set_state(UpdateItemFSM.waiting_item_new_name)
 
 
 @router.message(UpdateItemFSM.waiting_item_new_name, F.text)
 async def update_item_name(message: Message, state):
-    """
-    Запрашиваем новое описание позиции.
-    """
+    """Ask for item description."""
     await state.update_data(item_new_name=message.text.strip())
-    await message.answer('Введите описание для позиции:', reply_markup=back('goods_management'))
+    await message.answer(localize('admin.goods.update.prompt.description'), reply_markup=back('goods_management'))
     await state.set_state(UpdateItemFSM.waiting_item_description)
 
 
 @router.message(UpdateItemFSM.waiting_item_description, F.text)
 async def update_item_description(message: Message, state):
-    """
-    Запрашиваем новую цену позиции.
-    """
+    """Ask for new price."""
     await state.update_data(item_description=message.text.strip())
-    await message.answer('Введите цену для позиции (число в ₽):', reply_markup=back('goods_management'))
+    await message.answer(localize('admin.goods.add.prompt.price', currency=EnvKeys.PAY_CURRENCY),
+                         reply_markup=back('goods_management'))
     await state.set_state(UpdateItemFSM.waiting_item_price)
 
 
 @router.message(UpdateItemFSM.waiting_item_price, F.text)
 async def update_item_price(message: Message, state):
-    """
-    Валидируем цену. Затем спрашиваем про режим “бесконечность”.
-    """
+    """Validate price and ask about infinity mode."""
     price_text = message.text.strip()
     if not price_text.isdigit():
-        await message.answer('⚠️ Некорректное значение цены. Введите число.', reply_markup=back('goods_management'))
+        await message.answer(localize('admin.goods.add.price.invalid'), reply_markup=back('goods_management'))
         return
 
     await state.update_data(item_price=int(price_text))
     data = await state.get_data()
     item_old_name = data.get('item_old_name')
 
-    # Если позиция сейчас НЕ бесконечная — спросим, сделать ли её бесконечной
+    # If the item is NOT infinite now — ask to make it infinite
     if not check_value(item_old_name):
         await message.answer(
-            'Вы хотите сделать товары бесконечными?',
+            localize('admin.goods.update.infinity.make.question'),
             reply_markup=question_buttons('change_make_infinity', 'goods_management')
         )
     else:
-        # иначе — спросим, отменить ли бесконечность
+        # Otherwise ask to disable infinity
         await message.answer(
-            'Вы хотите отменить бесконечные товары?',
+            localize('admin.goods.update.infinity.deny.question'),
             reply_markup=question_buttons('change_deny_infinity', 'goods_management')
         )
     await state.set_state(UpdateItemFSM.waiting_make_infinity)
@@ -242,13 +244,13 @@ async def update_item_price(message: Message, state):
 @router.callback_query(F.data.startswith('change_'), UpdateItemFSM.waiting_make_infinity)
 async def update_item_process(call: CallbackQuery, state):
     """
-    Обрабатываем решение по бесконечности:
-    - change_*_no   -> просто обновляем позицию без изменения values,
-    - change_make_* -> ждём ОДНО значение и переводим позицию в бесконечную,
-    - change_deny_* -> ждём список значений и переводим позицию в обычную.
+    Handle infinity decision:
+    - change_*_no   -> just update meta without changing values,
+    - change_make_* -> expect ONE value and switch to infinite,
+    - change_deny_* -> expect MANY values and switch to regular.
     """
     parts = call.data.split('_')
-    # Ожидаемые варианты: change_make_infinity_yes/no, change_deny_infinity_yes/no
+    # Expected: change_make_infinity_yes/no, change_deny_infinity_yes/no
     decision_scope = parts[1]  # make / deny
     decision_yesno = parts[3]  # yes / no
 
@@ -260,25 +262,28 @@ async def update_item_process(call: CallbackQuery, state):
     price = data.get('item_price')
 
     if decision_yesno == 'no':
-        # Не меняем тип (остатки/бесконечность), просто апдейтим мета-данные
+        # No type change (keep infinity/regular), update meta only
         update_item(item_old_name, item_new_name, item_description, price, category)
-        await call.message.edit_text('✅ Позиция обновлена', reply_markup=back('goods_management'))
+        await call.message.edit_text(localize('admin.goods.update.success'), reply_markup=back('goods_management'))
         admin_info = await call.message.bot.get_chat(call.from_user.id)
         audit_logger.info(
-            f'Админ {call.from_user.id} ({admin_info.first_name}) обновил позицию "{item_old_name}" → "{item_new_name}"')
+            f'Admin {call.from_user.id} ({admin_info.first_name}) updated item "{item_old_name}" → "{item_new_name}".'
+        )
         await state.clear()
         return
 
     # decision_yesno == 'yes'
     if decision_scope == 'make':
-        # Переводим в бесконечный режим: ждём ОДНО значение
-        await call.message.edit_text('Введите одно значение товара для позиции:', reply_markup=back('goods_management'))
+        # Switch to infinite mode: expect a single value
+        await call.message.edit_text(
+            localize('admin.goods.add.single.prompt_value'),
+            reply_markup=back('goods_management')
+        )
         await state.set_state(UpdateItemFSM.waiting_single_value)
     else:
-        # Переводим в обычный режим: собираем МНОЖЕСТВО values
+        # Switch to regular mode: collect many values
         await call.message.edit_text(
-            'Введите товары для позиции по одному сообщению.\n'
-            'Когда закончите ввод — нажмите «Добавить указанные товары».',
+            localize('admin.goods.add.values.prompt_multi'),
             reply_markup=back("goods_management")
         )
         await state.set_state(UpdateItemFSM.waiting_multiple_values)
@@ -287,10 +292,10 @@ async def update_item_process(call: CallbackQuery, state):
 @router.message(UpdateItemFSM.waiting_single_value, F.text)
 async def update_item_infinity(message: Message, state):
     """
-    Перевод в бесконечный режим:
-    - очищаем текущие values,
-    - добавляем единичное значение is_infinity=True,
-    - обновляем мета-данные позиции.
+    Switch to infinite mode:
+    - purge current values,
+    - add a single value with is_infinity=True,
+    - update item meta.
     """
     data = await state.get_data()
     item_old_name = data.get('item_old_name')
@@ -300,24 +305,24 @@ async def update_item_infinity(message: Message, state):
     price = data.get('item_price')
     value = message.text
 
-    # Чистим values и записываем "бесконечное" значение
     delete_only_items(item_old_name)
     add_values_to_item(item_old_name, value, True)
     update_item(item_old_name, item_new_name, item_description, price, category)
 
-    await message.answer('✅ Позиция обновлена', reply_markup=back('goods_management'))
+    await message.answer(localize('admin.goods.update.success'), reply_markup=back('goods_management'))
     admin_info = await message.bot.get_chat(message.from_user.id)
     audit_logger.info(
-        f'Админ {message.from_user.id} ({admin_info.first_name}) обновил позицию "{item_old_name}" → "{item_new_name}"')
+        f'Admin {message.from_user.id} ({admin_info.first_name}) updated item "{item_old_name}" → "{item_new_name}".'
+    )
     await state.clear()
 
 
 @router.message(UpdateItemFSM.waiting_multiple_values, F.text)
 async def updating_item(message: Message, state):
     """
-    Перевод в обычный (не бесконечный) режим:
-    - накапливаем значения,
-    - затем кнопкой “Завершить” применим изменения.
+    Switch to regular (non-infinite) mode:
+    - accumulate values,
+    - then apply changes with the “Finish” button.
     """
     data = await state.get_data()
     values = data.get('item_values', [])
@@ -325,10 +330,10 @@ async def updating_item(message: Message, state):
     await state.update_data(item_values=values)
 
     await message.answer(
-        f'✅ Товар «{message.text}» добавлен в список ({len(values)} шт.)',
+        localize('admin.goods.add.values.added', value=message.text, count=len(values)),
         reply_markup=simple_buttons([
-            ("Добавить указанные товары", "finish_update_item"),
-            ("⬅️ Назад", "goods_management")
+            (localize('btn.add_values_finish'), "finish_update_item"),
+            (localize('btn.back'), "goods_management")
         ], per_row=1)
     )
 
@@ -336,10 +341,10 @@ async def updating_item(message: Message, state):
 @router.callback_query(F.data == 'finish_update_item', UpdateItemFSM.waiting_multiple_values)
 async def update_item_no_infinity(call: CallbackQuery, state):
     """
-    Финал перевода в обычный режим:
-    - очищаем текущие values,
-    - добавляем все накопленные значения is_infinity=False,
-    - обновляем мета-данные позиции.
+    Finalize switch to regular mode:
+    - purge current values,
+    - add all collected values with is_infinity=False,
+    - update item meta.
     """
     data = await state.get_data()
     item_old_name = data.get('item_old_name')
@@ -363,45 +368,49 @@ async def update_item_no_infinity(call: CallbackQuery, state):
             skipped_invalid += 1
             continue
 
-        # Дубликат внутри текущей пачки
         if v_norm in seen_in_batch:
             skipped_batch_dup += 1
             continue
         seen_in_batch.add(v_norm)
 
-        # Пытаемся вставить — False означает, что такое уже есть в БД
         if add_values_to_item(item_old_name, v_norm, False):
             added += 1
         else:
             skipped_db_dup += 1
 
-    text_lines = [f"✅ Позиция обновлена", f"📦 Добавлено товаров: <b>{added}</b>"]
-    if skipped_db_dup:
-        text_lines.append(f"↩️ Пропущено (уже были в БД): <b>{skipped_db_dup}</b>")
-    if skipped_batch_dup:
-        text_lines.append(f"🔁 Пропущено (дубль в вводе): <b>{skipped_batch_dup}</b>")
-    if skipped_invalid:
-        text_lines.append(f"🚫 Пропущено (пустые/некорректные): <b>{skipped_invalid}</b>")
-
+    # Update meta after values are in place
     update_item(item_old_name, item_new_name, item_description, price, category)
 
-    # Опционально: уведомление в группу/канал, если настроено
+    text_lines = [
+        localize('admin.goods.update.success'),
+        localize('admin.goods.add.result.added', n=added),
+    ]
+    if skipped_db_dup:
+        text_lines.append(localize('admin.goods.add.result.skipped_db_dup', n=skipped_db_dup))
+    if skipped_batch_dup:
+        text_lines.append(localize('admin.goods.add.result.skipped_batch_dup', n=skipped_batch_dup))
+    if skipped_invalid:
+        text_lines.append(localize('admin.goods.add.result.skipped_invalid', n=skipped_invalid))
+
+    # Optional: group/channel notification (if configured)
     group_id = EnvKeys.GROUP_ID if getattr(EnvKeys, "GROUP_ID", None) not in (None, -988765433) else None
     if group_id:
         try:
             await call.message.bot.send_message(
                 chat_id=group_id,
-                text=(f'🎁 Залив\n'
-                      f'🏷️ Товар: <b>{item_new_name}</b>\n'
-                      f'📦 Количество: <b>{added}</b>'),
+                text=(
+                    f'🎁 {localize("shop.group.new_upload")}\n'
+                    f'🏷️ {localize("shop.group.item")}: <b>{item_new_name}</b>\n'
+                    f'📦 {localize("shop.group.count")}: <b>{added}</b>'
+                ),
                 parse_mode='HTML'
             )
         except Exception:
-            # Не мешаем сценарию, если отправка не удалась
             pass
 
     await call.message.edit_text("\n".join(text_lines), parse_mode="HTML", reply_markup=back('goods_management'))
     admin_info = await call.message.bot.get_chat(call.from_user.id)
     audit_logger.info(
-        f'Админ {call.from_user.id} ({admin_info.first_name}) обновил позицию "{item_old_name}" → "{item_new_name}"')
+        f'Admin {call.from_user.id} ({admin_info.first_name}) updated item "{item_old_name}" → "{item_new_name}".'
+    )
     await state.clear()

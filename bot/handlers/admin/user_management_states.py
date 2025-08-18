@@ -3,6 +3,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from aiogram.filters.state import StatesGroup, State
 
+from bot.i18n import localize
 from bot.database.models import Permission
 from bot.database.methods import (
     check_user, select_user_operations, select_user_items,
@@ -15,39 +16,41 @@ from bot.filters import HasPermissionFilter
 
 import datetime
 
+from bot.misc import EnvKeys
+
 router = Router()
 
 
 class UserMgmtStates(StatesGroup):
-    """FSM для сценариев управления пользователями."""
+    """FSM for user management flow."""
     waiting_user_id_for_check = State()
     waiting_user_replenish = State()
 
 
-# --- Открыть меню управления пользователями
+# --- Open user management menu
 @router.callback_query(F.data == 'user_management', HasPermissionFilter(Permission.USERS_MANAGE))
 async def user_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Запрашивает id пользователя для просмотра/изменения данных.
+    Asks admin to enter a user's ID to view / modify.
     """
     await state.clear()
     await call.message.edit_text(
-        '👤 Введите id пользователя,\nчтобы посмотреть | изменить его данные',
+        localize('admin.users.prompt_enter_id'),
         reply_markup=back('console')
     )
     await state.set_state(UserMgmtStates.waiting_user_id_for_check)
 
 
-# --- Проверка введённого id пользователя
+# --- Validate entered user id
 @router.message(UserMgmtStates.waiting_user_id_for_check, F.text)
 async def check_user_data(message: Message, state: FSMContext):
     """
-    Проверяет введённый id, если ok — предлагает посмотреть профиль.
+    Validates ID and shows a confirmation to open profile.
     """
     user_id_text = message.text.strip()
     if not user_id_text.isdigit():
         await message.answer(
-            '⚠️ Введите корректный числовой ID пользователя.',
+            localize('admin.users.invalid_id'),
             reply_markup=back('console')
         )
         return
@@ -55,88 +58,99 @@ async def check_user_data(message: Message, state: FSMContext):
     user = check_user(int(user_id_text))
     if not user:
         await message.answer(
-            '❌ Профиль недоступен (такого пользователя никогда не существовало)',
+            localize('admin.users.profile_unavailable'),
             reply_markup=back('console')
         )
         return
 
-    # Кнопки: посмотреть профиль или “назад”
+    # Buttons: view profile or go back
     markup = simple_buttons([
-        ("👁 Посмотреть профиль", f"check-user_{user.telegram_id}"),
-        ("⬅️ Назад", "user_management")
+        (localize('btn.admin.view_profile'), f"check-user_{user.telegram_id}"),
+        (localize('btn.back'), "user_management")
     ], per_row=1)
     await message.answer(
-        f"Вы точно хотите посмотреть профиль пользователя {user.telegram_id}?",
+        localize('admin.users.confirm_view', id=user.telegram_id),
         reply_markup=markup,
         parse_mode='HTML'
     )
     await state.clear()
 
 
-# --- Просмотр профиля пользователя
+# --- View user profile
 @router.callback_query(F.data.startswith('check-user_'), HasPermissionFilter(Permission.USERS_MANAGE))
 async def user_profile_view(call: CallbackQuery):
     """
-    Показывает админский просмотр профиля пользователя + действия.
+    Shows admin view of user profile + actions.
     """
     user_id_str = call.data[len('check-user_'):]
-    target_id = int(user_id_str)
+    try:
+        target_id = int(user_id_str)
+    except Exception:
+        await call.answer(localize('errors.invalid_data'), show_alert=True)
+        return
 
     user = check_user(target_id)
     if not user:
-        await call.answer("❌ Пользователь не найден", show_alert=True)
+        await call.answer(localize('admin.users.not_found'), show_alert=True)
         return
 
     user_info = await call.message.bot.get_chat(target_id)
 
     operations = select_user_operations(target_id)
     overall_balance = sum(operations) if operations else 0
-    items = select_user_items(target_id)
+    items_count = select_user_items(target_id)
     role = check_role_name_by_id(user.role_id)
     referrals = check_user_referrals(user.telegram_id)
 
-    # Кнопки действий
+    # Action buttons
     actions: list[tuple[str, str]] = []
     role_name = role  # 'USER' | 'ADMIN' | 'OWNER'
 
-    if role_name == 'OWNER':  # нельзя трогать владельца
+    if role_name == 'OWNER':
+        # Do nothing: owner’s role is immutable for safety
         pass
     elif role_name == 'ADMIN':
-        actions.append(("⬇️ Снять администратора", f"remove-admin_{target_id}"))
+        actions.append((localize('btn.admin.demote'), f"remove-admin_{target_id}"))
     else:  # USER
-        actions.append(("⬆️ Назначить администратором", f"set-admin_{target_id}"))
+        actions.append((localize('btn.admin.promote'), f"set-admin_{target_id}"))
 
-    actions.append(("💸 Пополнить баланс", f"fill-user-balance_{target_id}"))
-    if items:
-        actions.append(("🎁 Купленные товары", f"user-items_{target_id}"))
-    actions.append(("⬅️ Назад", "user_management"))
+    actions.append((localize('btn.admin.replenish_user'), f"fill-user-balance_{target_id}"))
+    if items_count:
+        actions.append((localize('btn.purchased'), f"user-items_{target_id}"))
+    actions.append((localize('btn.back'), "user_management"))
 
     markup = simple_buttons(actions, per_row=1)
+
+    lines = [
+        localize('profile.caption', name=user_info.first_name),
+        '',
+        localize('profile.id', id=target_id),
+        localize('profile.balance', amount=user.balance, currency=EnvKeys.PAY_CURRENCY),
+        localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY),
+        localize('profile.purchased_count', count=items_count),
+        '',
+        localize('admin.users.referrals', count=referrals),
+        localize('admin.users.role', role=role),
+        localize('profile.registration_date', dt=user.registration_date),
+    ]
     await call.message.edit_text(
-        f"👤 <b>Профиль</b> — {user_info.first_name}\n\n"
-        f"🆔 <b>ID</b> — <code>{target_id}</code>\n"
-        f"💳 <b>Баланс</b> — <code>{user.balance}</code> ₽\n"
-        f"💵 <b>Всего пополнено</b> — <code>{overall_balance}</code> ₽\n"
-        f"🎁 <b>Куплено товаров</b> — {items} шт\n\n"
-        f"👥 <b>Рефералы пользователя</b> — {referrals}\n"
-        f"🎛 <b>Роль</b> — {role}\n"
-        f"🕢 <b>Дата регистрации</b> — <code>{user.registration_date}</code>\n",
+        '\n'.join(lines),
         parse_mode='HTML',
         reply_markup=markup
     )
 
 
-# --- Открыть список купленных товаров пользователя (USERS_MANAGE)
+# --- Open bought items of the user (USERS_MANAGE)
 @router.callback_query(F.data.startswith('user-items_'), HasPermissionFilter(Permission.USERS_MANAGE))
 async def user_items_callback_handler(call: CallbackQuery):
     """
-    Показывает купленные товары конкретного пользователя (страница 0).
-    Формат callback_data кнопки: user-items_{user_id}
+    Shows bought items of a specific user (page 0).
+    Callback data format: user-items_{user_id}
     """
     try:
         user_id = int(call.data[len('user-items_'):])
     except Exception:
-        await call.answer("❌ Неверные данные", show_alert=True)
+        await call.answer(localize('errors.invalid_data'), show_alert=True)
         return
 
     bought_goods = select_bought_items(user_id) or []
@@ -150,30 +164,30 @@ async def user_items_callback_handler(call: CallbackQuery):
         back_cb=f'check-user_{user_id}',
         nav_cb_prefix=f"bought-goods-page_{user_id}_"
     )
-    await call.message.edit_text("Купленные товары:", reply_markup=markup)
+    await call.message.edit_text(localize('purchases.title'), reply_markup=markup)
 
 
-# --- Назначение админом
+# --- Promote to admin
 @router.callback_query(F.data.startswith('set-admin_'), HasPermissionFilter(Permission.ADMINS_MANAGE))
 async def process_admin_for_purpose(call: CallbackQuery):
     """
-    Назначает пользователя админом.
+    Assigns ADMIN role to the user.
     """
     user_data = call.data[len('set-admin_'):]
     try:
         user_id = int(user_data)
     except Exception:
-        await call.answer("❌ Неверные данные", show_alert=True)
+        await call.answer(localize('errors.invalid_data'), show_alert=True)
         return
 
     db_user = check_user(user_id)
     if not db_user:
-        await call.answer("❌ Пользователь не найден", show_alert=True)
+        await call.answer(localize('admin.users.not_found'), show_alert=True)
         return
 
     role_name = check_role_name_by_id(db_user.role_id)
     if role_name == 'OWNER':
-        await call.answer("Нельзя менять роль владельца", show_alert=True)
+        await call.answer(localize('admin.users.cannot_change_owner'), show_alert=True)
         return
 
     admin_role_id = get_role_id_by_name('ADMIN')
@@ -181,13 +195,13 @@ async def process_admin_for_purpose(call: CallbackQuery):
 
     user_info = await call.message.bot.get_chat(user_id)
     await call.message.edit_text(
-        f'✅ Роль присвоена пользователю {user_info.first_name}',
+        localize('admin.users.set_admin.success', name=user_info.first_name),
         reply_markup=back(f'check-user_{user_id}')
     )
     try:
         await call.message.bot.send_message(
             chat_id=user_id,
-            text='✅ Вам присвоена роль АДМИНИСТРАТОРА бота',
+            text=localize('admin.users.set_admin.notify'),
             reply_markup=close()
         )
     except Exception:
@@ -195,31 +209,32 @@ async def process_admin_for_purpose(call: CallbackQuery):
 
     admin_info = await call.message.bot.get_chat(call.from_user.id)
     audit_logger.info(
-        f"Пользователь {call.from_user.id} ({admin_info.first_name}) назначил пользователя {user_id} ({user_info.first_name}) администратором"
+        f"User {call.from_user.id} ({admin_info.first_name}) assigned user"
+        f"{user_id} ({user_info.first_name}) as administrator"
     )
 
 
-# --- Снятие роли админа
+# --- Demote from admin
 @router.callback_query(F.data.startswith('remove-admin_'), HasPermissionFilter(Permission.ADMINS_MANAGE))
 async def process_admin_for_remove(call: CallbackQuery):
     """
-    Снимает роль админа у пользователя.
+    Revokes ADMIN role from the user (sets USER).
     """
     user_data = call.data[len('remove-admin_'):]
     try:
         user_id = int(user_data)
     except Exception:
-        await call.answer("❌ Неверные данные", show_alert=True)
+        await call.answer(localize('errors.invalid_data'), show_alert=True)
         return
 
     db_user = check_user(user_id)
     if not db_user:
-        await call.answer("❌ Пользователь не найден", show_alert=True)
+        await call.answer(localize('admin.users.not_found'), show_alert=True)
         return
 
     role_name = check_role_name_by_id(db_user.role_id)
     if role_name == 'OWNER':
-        await call.answer("Нельзя снимать роль у владельца", show_alert=True)
+        await call.answer(localize('admin.users.cannot_change_owner'), show_alert=True)
         return
 
     user_role_id = get_role_id_by_name('USER')
@@ -227,13 +242,13 @@ async def process_admin_for_remove(call: CallbackQuery):
 
     user_info = await call.message.bot.get_chat(user_id)
     await call.message.edit_text(
-        f'✅ Роль отозвана у пользователя {user_info.first_name}',
+        localize('admin.users.remove_admin.success', name=user_info.first_name),
         reply_markup=back(f'check-user_{user_id}')
     )
     try:
         await call.message.bot.send_message(
             chat_id=user_id,
-            text='❌ У вас отозвана роль АДМИНИСТРАТОРА бота',
+            text=localize('admin.users.remove_admin.notify'),
             reply_markup=close()
         )
     except Exception:
@@ -241,73 +256,78 @@ async def process_admin_for_remove(call: CallbackQuery):
 
     admin_info = await call.message.bot.get_chat(call.from_user.id)
     audit_logger.info(
-        f"Пользователь {call.from_user.id} ({admin_info.first_name}) отозвал роль администратора у пользователя {user_id} ({user_info.first_name})"
+        f"User {call.from_user.id} ({admin_info.first_name}) revoked the role administrator"
+        f" from the user {user_id} ({user_info.first_name})"
     )
 
 
-# --- Пополнение баланса пользователя (USERS_MANAGE)
+# --- Ask amount for admin top-up (USERS_MANAGE)
 @router.callback_query(F.data.startswith('fill-user-balance_'), HasPermissionFilter(Permission.USERS_MANAGE))
 async def replenish_user_balance_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Запрашивает сумму для пополнения баланса выбранного пользователя.
+    Asks for amount to top up selected user's balance.
     """
     user_data = call.data[len('fill-user-balance_'):]
     try:
         user_id = int(user_data)
     except Exception:
-        await call.answer("❌ Неверные данные", show_alert=True)
+        await call.answer(localize('errors.invalid_data'), show_alert=True)
         return
 
     await call.message.edit_text(
-        '💰 Введите сумму для пополнения:',
+        localize('payments.replenish_prompt', currency=EnvKeys.PAY_CURRENCY),
         reply_markup=back(f'check-user_{user_id}')
     )
     await state.set_state(UserMgmtStates.waiting_user_replenish)
     await state.update_data(target_user=user_id)
 
 
-# --- Обработка суммы пополнения (USERS_MANAGE)
+# --- Process admin top-up amount (USERS_MANAGE)
 @router.message(UserMgmtStates.waiting_user_replenish, F.text)
 async def process_replenish_user_balance(message: Message, state: FSMContext):
     """
-    Обрабатывает сумму пополнения баланса пользователя.
+    Processes entered amount and tops up user's balance.
     """
     data = await state.get_data()
     user_id = data.get('target_user')
 
-    if not message.text or not message.text.strip().isdigit():
+    # Validation
+    min_amount, max_amount = EnvKeys.MIN_AMOUNT, EnvKeys.MAX_AMOUNT
+    text = (message.text or '').strip()
+    if not text.isdigit():
         await message.answer(
-            "❌ Неверная сумма пополнения. "
-            "Сумма пополнения должна быть числом не меньше 10₽ и не более 10 000₽",
+            localize('payments.replenish_invalid', min_amount=min_amount, max_amount=max_amount),
             reply_markup=back(f'check-user_{user_id}')
         )
         return
 
-    amount = int(message.text.strip())
-    if not (10 <= amount <= 10000):
+    amount = int(text)
+    if not (min_amount <= amount <= max_amount):
         await message.answer(
-            "❌ Неверная сумма пополнения. "
-            "Сумма пополнения должна быть числом не меньше 10₽ и не более 10 000₽",
+            localize('payments.replenish_invalid', min_amount=min_amount, max_amount=max_amount),
             reply_markup=back(f'check-user_{user_id}')
         )
         return
 
+    # Apply top-up
     create_operation(user_id, amount, datetime.datetime.now())
     update_balance(user_id, amount)
 
     user_info = await message.bot.get_chat(user_id)
     await message.answer(
-        f'✅ Баланс пользователя {user_info.first_name} пополнен на {amount}₽',
+        localize('admin.users.balance.topped', name=user_info.first_name, amount=amount, currency=EnvKeys.PAY_CURRENCY),
         reply_markup=back(f'check-user_{user_id}')
     )
+
     admin_info = await message.bot.get_chat(message.from_user.id)
     audit_logger.info(
-        f"Пользователь {message.from_user.id} ({admin_info.first_name}) пополнил баланс пользователя {user_id} ({user_info.first_name}) на {amount}₽"
+        f"User {message.from_user.id} ({admin_info.first_name}) topped up the balance of user "
+        f"{user_id} ({user_info.first_name}) by {amount}"
     )
     try:
         await message.bot.send_message(
             chat_id=user_id,
-            text=f'✅ Ваш баланс пополнен на {amount}₽',
+            text=localize('admin.users.balance.topped.notify', amount=amount, currency=EnvKeys.PAY_CURRENCY),
             reply_markup=close()
         )
     except Exception:
@@ -315,10 +335,10 @@ async def process_replenish_user_balance(message: Message, state: FSMContext):
     await state.clear()
 
 
-# --- Проверка профиля (user_manage_check) — просто возвращаемся к профилю пользователя
+# --- Re-open profile from various places
 @router.callback_query(F.data.startswith('check-user_'), HasPermissionFilter(permission=Permission.USERS_MANAGE))
 async def check_user_profile_again(call: CallbackQuery):
     """
-    Позволяет заново открыть профиль пользователя (переиспользует user_profile_view).
+    Re-uses user_profile_view to show the profile again.
     """
     await user_profile_view(call)

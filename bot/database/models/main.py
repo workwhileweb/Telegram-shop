@@ -1,6 +1,8 @@
 import datetime
+from typing import Any
+
 from sqlalchemy import (
-    Column, Integer, String, BigInteger, ForeignKey, Text, Boolean, VARCHAR,
+    Column, Integer, String, BigInteger, ForeignKey, Text, Boolean,
     DateTime, Numeric, Index, UniqueConstraint, func
 )
 from bot.database.main import Database
@@ -80,11 +82,11 @@ class User(Database.BASE):
     referral_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="SET NULL"), nullable=True, index=True)
     registration_date = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     user_operations = relationship("Operations", back_populates="user_telegram_id")
-    user_unfinished_operations = relationship("UnfinishedOperations", back_populates="user_telegram_id")
     user_goods = relationship("BoughtGoods", back_populates="user_telegram_id")
 
-    def __init__(self, telegram_id: int, registration_date: datetime.datetime, balance=0,
-                 referral_id=None, role_id: int = 1):
+    def __init__(self, telegram_id: int, registration_date: datetime.datetime, balance=0, referral_id=None,
+                 role_id: int = 1, **kw: Any):
+        super().__init__(**kw)
         self.telegram_id = telegram_id
         self.role_id = role_id
         self.balance = balance
@@ -97,7 +99,8 @@ class Categories(Database.BASE):
     name = Column(String(100), primary_key=True)
     item = relationship("Goods", back_populates="category")
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, **kw: Any):
+        super().__init__(**kw)
         self.name = name
 
 
@@ -110,7 +113,8 @@ class Goods(Database.BASE):
     category = relationship("Categories", back_populates="item")
     values = relationship("ItemValues", back_populates="item")
 
-    def __init__(self, name: str, price, description: str, category_name: str):
+    def __init__(self, name: str, price, description: str, category_name: str, **kw: Any):
+        super().__init__(**kw)
         self.name = name
         self.price = price
         self.description = description
@@ -130,7 +134,8 @@ class ItemValues(Database.BASE):
         Index('ix_item_values_item_inf', 'item_name', 'is_infinity'),
     )
 
-    def __init__(self, name: str, value: str, is_infinity: bool):
+    def __init__(self, name: str, value: str, is_infinity: bool, **kw: Any):
+        super().__init__(**kw)
         self.item_name = name
         self.value = value
         self.is_infinity = is_infinity
@@ -147,7 +152,8 @@ class BoughtGoods(Database.BASE):
     unique_id = Column(BigInteger, nullable=False, unique=True)
     user_telegram_id = relationship("User", back_populates="user_goods")
 
-    def __init__(self, name: str, value: str, price, bought_datetime, unique_id, buyer_id: int = 0):
+    def __init__(self, name: str, value: str, price, bought_datetime, unique_id, buyer_id: int = 0, **kw: Any):
+        super().__init__(**kw)
         self.item_name = name
         self.value = value
         self.price = price
@@ -164,29 +170,11 @@ class Operations(Database.BASE):
     operation_time = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     user_telegram_id = relationship("User", back_populates="user_operations")
 
-    def __init__(self, user_id: int, operation_value, operation_time):
+    def __init__(self, user_id: int, operation_value, operation_time, **kw: Any):
+        super().__init__(**kw)
         self.user_id = user_id
         self.operation_value = operation_value
         self.operation_time = operation_time
-
-
-class UnfinishedOperations(Database.BASE):
-    __tablename__ = 'unfinished_operations'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), nullable=False, index=True)
-    operation_value = Column(Numeric(12, 2), nullable=False)
-    operation_id = Column(String(128), nullable=False, unique=True, index=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    user_telegram_id = relationship("User", back_populates="user_unfinished_operations")
-
-    def __init__(self, user_id: int, operation_value, operation_id: str):
-        self.user_id = user_id
-        self.operation_value = operation_value
-        self.operation_id = operation_id
-
-
-Index("ix_bought_goods_buyer_time", BoughtGoods.buyer_id, BoughtGoods.bought_datetime.desc())
-Index("ix_operations_user_time", Operations.user_id, Operations.operation_time.desc())
 
 
 def register_models():

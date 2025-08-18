@@ -4,15 +4,16 @@ from aiogram.filters import BaseFilter
 from aiogram.types import Message, CallbackQuery
 
 from bot.database.methods import check_role
+from bot.misc import EnvKeys
 
 
 @dataclass
 class ValidAmountFilter(BaseFilter):
     """
-    Валидация суммы пополнения (используемся в FSM шагах).
+    Validation of the replenishment amount (used in FSM steps).
     """
-    min_amount: int = 20
-    max_amount: int = 10_000
+    min_amount: int = EnvKeys.MIN_AMOUNT
+    max_amount: int = EnvKeys.MAX_AMOUNT
 
     async def __call__(self, message: Message) -> bool:
         text: str = message.text or ""
@@ -25,12 +26,12 @@ class ValidAmountFilter(BaseFilter):
 @dataclass
 class HasPermissionFilter(BaseFilter):
     """
-    Фильтр на наличие определённого permission у пользователя (битовая маска).
+    Filter for the presence of a certain permission for the user (bit mask).
     """
     permission: int
 
     async def __call__(self, event: Message | CallbackQuery) -> bool:
         user_id = event.from_user.id
-        # check_role(user_id) возвращает int (битовая маска прав) или None
+        # check_role(user_id) returns int (bitmask of rights) or None
         user_permissions: int = check_role(user_id) or 0
         return (user_permissions & self.permission) == self.permission

@@ -30,6 +30,10 @@ There are a couple of buttons in the admin panel to control all processes in the
 
   ![](assets/shop_menu_picture.png)
 
+  ![](assets/goods_management_menu_picture.png)
+
+  ![](assets/categories_management_menu_picture.png)
+
   ![](assets/user_menu_picture.png)
 ### Other
   The bot has configured logging that reports errors or actions of administrators  
@@ -45,12 +49,16 @@ There are a couple of buttons in the admin panel to control all processes in the
     - Sqlalchemy
 
 - #### Payment:
-    - Crypto Bot
+    - CryptoPay
     - Telegram Stars
     - Telegram Payment
 
+- #### Localization:
+    - RU
+    - EN
+
 - #### Debug:
-    - logger
+  - logger
 
 ## Installation 💾
 [QUICK START](markdown/quick_start.md)

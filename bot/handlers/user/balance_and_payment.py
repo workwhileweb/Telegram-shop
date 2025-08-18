@@ -9,8 +9,8 @@ from aiogram.filters.state import StatesGroup, State
 
 from bot.database.methods import (
     get_user_balance, get_item_info, get_item_value, buy_item, add_bought_item,
-    buy_item_for_balance, start_operation,
-    get_user_referral, finish_operation, update_balance, create_operation
+    buy_item_for_balance,
+    get_user_referral, update_balance, create_operation
 )
 from bot.keyboards import back, payment_menu, close, get_payment_choice
 from bot.logger_mesh import audit_logger
@@ -18,79 +18,78 @@ from bot.misc import EnvKeys
 from bot.handlers.other import _any_payment_method_enabled
 from bot.misc.payment import CryptoPayAPI, send_stars_invoice, send_fiat_invoice
 from bot.filters import ValidAmountFilter
+from bot.i18n import localize
 
 router = Router()
 
 
 class BalanceStates(StatesGroup):
-    """
-    Состояния FSM для сценария пополнения баланса.
-    """
+    """FSM states for the balance top-up flow."""
     waiting_amount = State()
     waiting_payment = State()
 
 
-# --- Хэндлер: начало пополнения баланса
+# --- Start top-up
 @router.callback_query(F.data == "replenish_balance")
 async def replenish_balance_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Запрашивает у пользователя сумму для пополнения баланса.
-    Разрешает вход, если доступен хотя бы один метод оплаты.
+    Ask user for the amount if at least one payment method is enabled.
     """
     if not _any_payment_method_enabled():
-        await call.answer('❌ Пополнение не настроено', show_alert=True)
+        await call.answer(localize("payments.not_configured"), show_alert=True)
         return
 
     await call.message.edit_text(
-        '💰 Введите сумму для пополнения:',
+        localize("payments.replenish_prompt", currency=EnvKeys.PAY_CURRENCY),
         reply_markup=back('profile')
     )
     await state.set_state(BalanceStates.waiting_amount)
 
 
-# --- Хэндлер: ввод суммы пополнения (валидная сумма)
+# --- Amount entered (valid)
 @router.message(BalanceStates.waiting_amount, ValidAmountFilter())
 async def replenish_balance_amount(message: Message, state: FSMContext):
     """
-    Получает сумму и предлагает выбрать способ оплаты.
+    Store amount and show payment methods.
     """
     amount = int(message.text)
     await state.update_data(amount=amount)
 
     await message.answer(
-        '💳 Выберите способ оплаты',
+        localize("payments.method_choose"),
         reply_markup=get_payment_choice()
     )
     await state.set_state(BalanceStates.waiting_payment)
 
 
-# --- Хэндлер: ввод суммы пополнения (некорректная сумма)
+# --- Amount entered (invalid)
 @router.message(BalanceStates.waiting_amount)
 async def invalid_amount(message: Message, state: FSMContext):
     """
-    Сообщает об ошибке, если сумма пополнения некорректна.
+    Tell user the amount is invalid.
     """
     await message.answer(
-        "❌ Неверная сумма пополнения. "
-        "Сумма пополнения должна быть числом не меньше 20₽ и не более 10 000₽",
+        localize("payments.replenish_invalid", min_amount=EnvKeys.MIN_AMOUNT, max_amount=EnvKeys.MIN_AMOUNT,
+                 currency=EnvKeys.PAY_CURRENCY),
         reply_markup=back('replenish_balance')
     )
 
 
-# --- Хэндлер: выбор способа оплаты
-@router.callback_query(BalanceStates.waiting_payment,
-                       F.data.in_([ 'pay_cryptopay', "pay_stars", "pay_fiat"]))
+# --- Payment method chosen
+@router.callback_query(
+    BalanceStates.waiting_payment,
+    F.data.in_(["pay_cryptopay", "pay_stars", "pay_fiat"])
+)
 async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
     """
-    Создаёт платёж для выбранного способа и предлагает пользователю оплатить.
-    Для Telegram Stars и fiat отправляем инвойс через Telegram Payments,
-    дальше срабатывают общие pre_checkout и successful_payment хэндлеры.
+    Create an invoice for the chosen payment method.
+    For Stars/Fiat we send Telegram invoice (then pre_checkout/success handlers fire).
     """
     data = await state.get_data()
     amount = data.get('amount')
     if amount is None:
-        await call.answer("Сессия оплаты устарела. Начните заново.", show_alert=True)
-        await call.message.edit_text("⛩️ Основное меню", reply_markup=back('back_to_menu'))
+        await call.answer(localize("payments.session_expired"), show_alert=True)
+        await call.message.edit_text(localize("menu.title"), reply_markup=back('back_to_menu'))
         await state.clear()
         return
 
@@ -100,7 +99,7 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
     if call.data == "pay_cryptopay":
         # Crypto Bot
         if not EnvKeys.CRYPTO_PAY_TOKEN:
-            await call.answer("❌ CryptoPay не настроен", show_alert=True)
+            await call.answer(localize("payments.not_configured"), show_alert=True)
             return
         try:
             crypto = CryptoPayAPI()
@@ -112,38 +111,47 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
                 expires_in=EnvKeys.PAYMENT_TIME
             )
         except Exception as e:
-            await call.answer(f"❌ Ошибка при создании счёта: {e}", show_alert=True)
+            await call.answer(localize("payments.crypto.create_fail", error=str(e)), show_alert=True)
             return
 
         pay_url = invoice.get("mini_app_invoice_url")
         invoice_id = invoice.get("invoice_id")
 
         await state.update_data(invoice_id=invoice_id, payment_type="cryptopay")
-        start_operation(call.from_user.id, int(amount_dec), invoice_id)
 
         await call.message.edit_text(
-            f"💵 Сумма пополнения: {int(amount_dec)}₽.\n"
-            f"⌛️ У вас есть {int(ttl_seconds / 60)} минут на оплату.\n"
-            f"<b>❗️ После оплаты нажмите кнопку «Проверить оплату»</b>",
+            localize("payments.invoice.summary",
+                     amount=int(amount_dec),
+                     minutes=int(ttl_seconds / 60),
+                     button=localize("btn.check_payment"),
+                     currency=EnvKeys.PAY_CURRENCY),
             reply_markup=payment_menu(pay_url)
         )
 
     elif call.data == "pay_stars":
         # Telegram Stars (XTR)
-        try:
-            await send_stars_invoice(
-                bot=call.message.bot,
-                chat_id=call.from_user.id,
-                amount=int(amount_dec),
-            )
-        except Exception as e:
-            await call.answer(f"❌ Не удалось выставить счёт в Stars: {e}", show_alert=True)
+        if int(EnvKeys.STARS_PER_VALUE) > 0:
+            try:
+                await send_stars_invoice(
+                    bot=call.message.bot,
+                    chat_id=call.from_user.id,
+                    amount=int(amount_dec),
+                )
+            except Exception as e:
+                await call.answer(localize("payments.stars.create_fail", error=str(e)), show_alert=True)
+                return
+
+            await state.clear()
+        else:
+            await call.answer(localize("payments.not_configured"), show_alert=True)
             return
 
-        await state.clear()
-
     elif call.data == "pay_fiat":
-        # Telegram Payments (fiat провайдер)
+        # Telegram Payments (fiat provider)
+        if not EnvKeys.TELEGRAM_PROVIDER_TOKEN:
+            await call.answer(localize("payments.not_configured"), show_alert=True)
+            return
+
         try:
             await send_fiat_invoice(
                 bot=call.message.bot,
@@ -151,32 +159,29 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
                 amount=int(amount_dec),
             )
         except Exception as e:
-            await call.answer(f"❌ Не удалось выставить счёт: {e}", show_alert=True)
+            await call.answer(localize("payments.fiat.create_fail", error=str(e)), show_alert=True)
             return
         await state.clear()
 
 
-# --- Хэндлер: проверка оплаты (для методов, требующих ручной проверки)
+# --- Manual payment check (CryptoPay)
 @router.callback_query(F.data == "check")
 async def checking_payment(call: CallbackQuery, state: FSMContext):
     """
-    Проверка статуса оплаты и зачисление средств.
-    Используется для CryptoPay.
-    Для Telegram Payment НЕ используется (там автосообщение SuccessfulPayment).
+    Check CryptoPay invoice status and credit balance if paid.
     """
     user_id = call.from_user.id
     data = await state.get_data()
     payment_type = data.get("payment_type")
 
     if not payment_type:
-        await call.answer("❌ Активных счетов не найдено. Начните пополнение заново.", show_alert=True)
+        await call.answer(localize("payments.no_active_invoice"), show_alert=True)
         return
 
-    # --- CryptoPay
     if payment_type == "cryptopay":
         invoice_id = data.get("invoice_id")
         if not invoice_id:
-            await call.answer("❌ Счёт не найден. Начните заново.", show_alert=True)
+            await call.answer(localize("payments.invoice_not_found"), show_alert=True)
             await state.clear()
             return
 
@@ -184,7 +189,7 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
             crypto = CryptoPayAPI()
             info = await crypto.get_invoice(invoice_id)
         except Exception as e:
-            await call.answer(f"❌ Ошибка проверки: {e}", show_alert=True)
+            await call.answer(localize("payments.crypto.create_fail", error=str(e)), show_alert=True)
             return
 
         status = info.get("status")
@@ -192,16 +197,18 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
             balance_amount = int(Decimal(str(info.get("amount", "0"))).quantize(Decimal("1.")))
             referral_id = get_user_referral(user_id)
 
-            finish_operation(invoice_id)
-
             if referral_id and EnvKeys.REFERRAL_PERCENT:
                 try:
                     referral_operation = int(
-                        Decimal(EnvKeys.REFERRAL_PERCENT) / Decimal(100) * Decimal(balance_amount))
+                        Decimal(EnvKeys.REFERRAL_PERCENT) / Decimal(100) * Decimal(balance_amount)
+                    )
                     update_balance(referral_id, referral_operation)
                     await call.bot.send_message(
                         referral_id,
-                        f'✅ Вы получили {referral_operation}₽ от вашего реферала {call.from_user.first_name}',
+                        localize('payments.referral.bonus',
+                                 amount=referral_operation,
+                                 name=call.from_user.first_name,
+                                 currency=EnvKeys.PAY_CURRENCY),
                         reply_markup=close()
                     )
                 except Exception:
@@ -211,33 +218,41 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
             update_balance(user_id, balance_amount)
 
             await call.message.edit_text(
-                f'✅ Баланс пополнен на {balance_amount}₽',
+                localize("payments.topped_simple", amount=balance_amount, currency=EnvKeys.PAY_CURRENCY),
                 reply_markup=back('profile')
             )
             await state.clear()
 
+            # audit log
+            try:
+                user_info = await call.bot.get_chat(user_id)
+                audit_logger.info(
+                    f"user {user_id} ({user_info.first_name}) "
+                    f"replenished the balance by: {balance_amount} {EnvKeys.PAY_CURRENCY} ({payment_type})"
+                )
+            except Exception:
+                pass
+
         elif status == "active":
-            await call.answer("⌛️ Платёж ещё не оплачен.")
+            await call.answer(localize("payments.not_paid_yet"))
         else:
-            await call.answer("❌ Срок действия счёта истёк.", show_alert=True)
+            await call.answer(localize("payments.expired"), show_alert=True)
 
 
-# --- Хэндлер: Telegram Payments pre-checkout
+# --- Telegram Payments pre-checkout
 @router.pre_checkout_query()
 async def pre_checkout_handler(query: PreCheckoutQuery):
-    """
-    Telegram требует обязательно ответить ok=True перед оплатой.
-    """
+    """Telegram requires answering ok=True before payment proceeds."""
     await query.answer(ok=True)
 
 
-# --- Хэндлер: успешная оплата через Telegram Payments (в т.ч. Stars)
+# --- Successful Telegram payment (Stars / Fiat)
 @router.message(F.successful_payment)
 async def successful_payment_handler(message: Message):
     """
-    Обработка успешной оплаты Telegram Payments.
-    - XTR (Stars): total_amount — это ⭐. Рубли берём из payload (amount) либо конвертируем ⭐ → ₽.
-    - Fiat (RUB/EUR/USD...): total_amount — в минимальных единицах (копейки/центы), делим на 100 (или 1 для JPY/KRW).
+    Handle successful payment:
+    - XTR (Stars): total_amount is ⭐. We take RUB from payload (amount) or convert ⭐ → ₽.
+    - Fiat: total_amount is minor units; divide by 100 (or 1 for JPY/KRW).
     """
     sp: SuccessfulPayment = message.successful_payment
     user_id = message.from_user.id
@@ -256,7 +271,6 @@ async def successful_payment_handler(message: Message):
         if "amount" in payload:
             amount = int(payload["amount"])
         else:
-            # обратная конверсия ⭐ → ₽ по константе
             amount = int(
                 (Decimal(int(sp.total_amount)) / Decimal(str(EnvKeys.STARS_PER_VALUE)))
                 .to_integral_value(rounding=ROUND_HALF_UP)
@@ -264,15 +278,14 @@ async def successful_payment_handler(message: Message):
     else:
         # Fiat
         currency = sp.currency.upper()
-        # 2 знака по умолчанию, 0 для JPY/KRW
         multiplier = 1 if currency in {"JPY", "KRW"} else 100
         amount = int(Decimal(sp.total_amount) / Decimal(multiplier))
 
     if amount <= 0:
-        await message.answer("❌ Не удалось определить сумму оплаты.", reply_markup=close())
+        await message.answer(localize("payments.unable_determine_amount"), reply_markup=close())
         return
 
-    # Реферальное начисление (если настроено)
+    # Referral bonus (if configured)
     referral_id = get_user_referral(user_id)
     if referral_id and EnvKeys.REFERRAL_PERCENT:
         try:
@@ -283,43 +296,55 @@ async def successful_payment_handler(message: Message):
                 update_balance(referral_id, referral_operation)
                 await message.bot.send_message(
                     referral_id,
-                    f'✅ Вы получили {referral_operation}₽ от вашего реферала {message.from_user.first_name}',
+                    localize('payments.referral.bonus',
+                             amount=referral_operation,
+                             name=message.from_user.first_name),
                     reply_markup=close()
                 )
         except Exception:
             pass
 
-    # Фиксируем операцию и пополняем баланс
+    # Persist operation & credit balance
     current_time = datetime.datetime.now()
     create_operation(user_id, amount, current_time)
     update_balance(user_id, amount)
 
-    suffix = "Telegram Stars" if sp.currency == "XTR" else "Telegram Payments"
+    suffix = localize("payments.success_suffix.stars") if sp.currency == "XTR" else localize(
+        "payments.success_suffix.tg")
     await message.answer(
-        f'✅ Баланс пополнен на {amount}₽ ({suffix})',
+        localize('payments.topped_with_suffix', amount=amount, suffix=suffix, currency=EnvKeys.PAY_CURRENCY),
         reply_markup=back('profile')
     )
+    # audit log
+    try:
+        user_info = await message.bot.get_chat(user_id)
+        audit_logger.info(
+            f"user {user_id} ({user_info.first_name}) "
+            f"replenished the balance by: {amount} {EnvKeys.PAY_CURRENCY} ({suffix})"
+        )
+    except Exception:
+        pass
 
 
-# --- Хэндлер: покупка товара
+# --- Buy an item
 @router.callback_query(F.data.startswith('buy_'))
 async def buy_item_callback_handler(call: CallbackQuery):
     """
-    Покупка товара пользователем.
+    Handle product purchase with balance.
     """
     item_name = call.data[4:]
     user_id = call.from_user.id
 
     item_info = get_item_info(item_name)
     if not item_info:
-        await call.answer("❌ Товар не найден", show_alert=True)
+        await call.answer(localize("shop.item.not_found"), show_alert=True)
         return
 
     price = int(item_info["price"])
     balance = get_user_balance(user_id) or 0
     if balance < price:
         await call.message.edit_text(
-            '❌ Недостаточно средств',
+            localize("shop.insufficient_funds"),
             reply_markup=back(f'item_{item_name}')
         )
         return
@@ -327,7 +352,7 @@ async def buy_item_callback_handler(call: CallbackQuery):
     value_data = get_item_value(item_name)
     if not value_data:
         await call.message.edit_text(
-            '❌ Товара нет в наличии',
+            localize("shop.out_of_stock"),
             reply_markup=back(f'item_{item_name}')
         )
         return
@@ -345,18 +370,18 @@ async def buy_item_callback_handler(call: CallbackQuery):
     new_balance = buy_item_for_balance(user_id, price)
 
     await call.message.edit_text(
-        f'✅ Товар куплен. '
-        f'<b>Баланс</b>: <i>{new_balance}</i>₽\n\n{value_data["value"]}',
+        localize('shop.purchase.success', balance=new_balance, value=value_data["value"],
+                 currency=EnvKeys.PAY_CURRENCY),
         parse_mode='HTML',
         reply_markup=back(f'item_{item_name}')
     )
 
-    # тихо залогируем покупку
+    # audit log
     try:
         user_info = await call.bot.get_chat(user_id)
         audit_logger.info(
-            f"Пользователь {user_id} ({user_info.first_name}) "
-            f"купил 1 товар позиции {value_data['item_name']} за {price}р"
+            f"user {user_id} ({user_info.first_name}) "
+            f"bought 1 item from position: {value_data['item_name']} for {price} {EnvKeys.PAY_CURRENCY}"
         )
     except Exception:
         pass

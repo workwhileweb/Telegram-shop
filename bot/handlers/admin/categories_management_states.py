@@ -2,6 +2,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.filters.state import StatesGroup, State
 
+from bot.i18n import localize
 from bot.database.models import Permission
 from bot.database.methods import (
     check_category, create_category, delete_category, update_category
@@ -15,10 +16,10 @@ router = Router()
 
 class CategoryFSM(StatesGroup):
     """
-    FSM-состояния для работы с категориями:
-    - добавление,
-    - удаление,
-    - переименование.
+    FSM states for category management:
+    - add,
+    - delete,
+    - rename.
     """
     waiting_add_category = State()
     waiting_delete_category = State()
@@ -26,54 +27,54 @@ class CategoryFSM(StatesGroup):
     waiting_update_category_name = State()
 
 
-# --- Главное меню управления категориями (SHOP_MANAGE)
+# --- Main "Categories management" submenu (permission: SHOP_MANAGE)
 @router.callback_query(F.data == 'categories_management', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def categories_callback_handler(call: CallbackQuery):
     """
-    Открывает подменю управления категориями.
+    Opens the categories management submenu.
     """
     actions = [
-        ("➕ Добавить категорию", "add_category"),
-        ("✏️ Переименовать категорию", "update_category"),
-        ("🗑 Удалить категорию", "delete_category"),
-        ("⬅️ Назад", "console"),
+        (localize("admin.categories.add"), "add_category"),
+        (localize("admin.categories.rename"), "update_category"),
+        (localize("admin.categories.delete"), "delete_category"),
+        (localize("btn.back"), "console"),
     ]
     await call.message.edit_text(
-        "⛩️ Меню управления категориями",
-        reply_markup=simple_buttons(actions, per_row=1)
+        localize("admin.categories.menu.title"),
+        reply_markup=simple_buttons(actions, per_row=1),
     )
 
 
-# --- Начало добавления категории
+# --- Start adding a category
 @router.callback_query(F.data == 'add_category', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def add_category_callback_handler(call: CallbackQuery, state):
     """
-    Запрашивает у администратора название новой категории.
+    Asks admin for a new category name.
     """
     await call.message.edit_text(
-        "Введите название новой категории:",
+        localize("admin.categories.prompt.add"),
         reply_markup=back("categories_management"),
     )
     await state.set_state(CategoryFSM.waiting_add_category)
 
 
-# --- Обработка ввода названия новой категории
+# --- Handle new category name
 @router.message(CategoryFSM.waiting_add_category, F.text)
 async def process_category_for_add(message: Message, state):
     """
-    Создаёт новую категорию, если её ещё нет.
+    Creates a category if it doesn't exist yet.
     """
     category_name = message.text.strip()
 
     if check_category(category_name):
         await message.answer(
-            "❌ Категория не создана (такая уже существует)",
+            localize("admin.categories.add.exist"),
             reply_markup=back("categories_management"),
         )
     else:
         create_category(category_name)
         await message.answer(
-            "✅ Категория создана",
+            localize("admin.categories.add.success"),
             reply_markup=back("categories_management"),
         )
         admin_info = await message.bot.get_chat(message.from_user.id)
@@ -84,39 +85,38 @@ async def process_category_for_add(message: Message, state):
     await state.clear()
 
 
-# --- Начало удаления категории
+# --- Start deleting a category
 @router.callback_query(F.data == 'delete_category', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def delete_category_callback_handler(call: CallbackQuery, state):
     """
-    Запрашивает у администратора название категории для удаления.
+    Asks admin for a category name to delete.
     """
     await call.message.edit_text(
-        "Введите название категории для удаления:",
-        reply_markup=back("categories_management")
+        localize("admin.categories.prompt.delete"),
+        reply_markup=back("categories_management"),
     )
     await state.set_state(CategoryFSM.waiting_delete_category)
 
 
-# --- Обработка удаления категории
+# --- Handle category deletion
 @router.message(CategoryFSM.waiting_delete_category, F.text)
 async def process_category_for_delete(message: Message, state):
     """
-    Удаляет категорию по имени, если она существует.
+    Deletes a category by name if it exists.
     """
     category_name = message.text.strip()
 
     if not check_category(category_name):
         await message.answer(
-            "❌ Категория не удалена (такой категории не существует)",
+            localize("admin.categories.delete.not_found"),
             reply_markup=back("categories_management"),
         )
     else:
-        # БД стоит FK на goods.category_name -> categories.name.
-        # Если есть связанные позиции, удаление может быть запрещено (RESTRICT).
+        # DB has FK: goods.category_name -> categories.name (RESTRICT).
         delete_category(category_name)
         await message.answer(
-            "✅ Категория удалена",
-            reply_markup=back("categories_management")
+            localize("admin.categories.delete.success"),
+            reply_markup=back("categories_management"),
         )
         admin_info = await message.bot.get_chat(message.from_user.id)
         audit_logger.info(
@@ -126,67 +126,64 @@ async def process_category_for_delete(message: Message, state):
     await state.clear()
 
 
-# --- Начало переименования категории
+# --- Start renaming a category
 @router.callback_query(F.data == 'update_category', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def update_category_callback_handler(call: CallbackQuery, state):
     """
-    Запрашивает текущее имя категории для её переименования.
+    Asks admin for current category name before renaming.
     """
     await call.message.edit_text(
-        "Введите текущее название категории, которую нужно переименовать:",
-        reply_markup=back("categories_management")
+        localize("admin.categories.prompt.rename.old"),
+        reply_markup=back("categories_management"),
     )
     await state.set_state(CategoryFSM.waiting_update_category)
 
 
-# --- Проверяем существование категории, затем просим новое имя
+# --- Verify existing category, then ask for new name
 @router.message(CategoryFSM.waiting_update_category, F.text)
 async def check_category_for_update(message: Message, state):
     """
-    Проверяет, что категория существует, затем просит указать новое имя.
+    Verifies the category exists, then prompts for a new name.
     """
     old_name = message.text.strip()
 
-    # Сначала убеждаемся, что такая категория есть
     if not check_category(old_name):
         await message.answer(
-            "❌ Категория не может быть обновлена (такой категории не существует)",
-            reply_markup=back("categories_management")
+            localize("admin.categories.rename.not_found"),
+            reply_markup=back("categories_management"),
         )
         await state.clear()
         return
 
     await state.update_data(old_category=old_name)
     await message.answer(
-        "Введите новое имя для категории:",
-        reply_markup=back("categories_management")
+        localize("admin.categories.prompt.rename.new"),
+        reply_markup=back("categories_management"),
     )
     await state.set_state(CategoryFSM.waiting_update_category_name)
 
 
-# --- Завершаем обновление категории
+# --- Finish renaming
 @router.message(CategoryFSM.waiting_update_category_name, F.text)
 async def check_category_name_for_update(message: Message, state):
     """
-    Переименовывает категорию в новое название.
+    Renames a category to the new name.
     """
     new_name = message.text.strip()
     data = await state.get_data()
     old_name = data.get("old_category")
 
-    # Если новая категория уже есть — отказываем.
     if check_category(new_name):
         await message.answer(
-            "❌ Переименование невозможно (категория с таким именем уже существует)",
+            localize("admin.categories.rename.exist"),
             reply_markup=back("categories_management"),
         )
         await state.clear()
         return
 
-    # Переименовываем (метод update_category должен обработать перенос ссылок из goods)
     update_category(old_name, new_name)
     await message.answer(
-        f'✅ Категория "{old_name}" переименована в "{new_name}"',
+        localize("admin.categories.rename.success", old=old_name, new=new_name),
         reply_markup=back("categories_management"),
     )
 

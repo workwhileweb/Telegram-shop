@@ -8,24 +8,26 @@ from bot.database.methods import (
     select_item_values_amount, check_value
 )
 from bot.keyboards import paginated_keyboard, item_info, back
+from bot.i18n import localize
+from bot.misc import EnvKeys
 
 router = Router()
 
 
 class ShopStates(StatesGroup):
     """
-    Состояния FSM для раздела покупок (для личного списка покупок).
+    FSM states for the shopping section (personal purchases list).
     """
     viewing_goods = State()
     viewing_bought_items = State()
     viewing_categories = State()
 
 
-# --- Открыть магазин (категории)
+# --- Open shop (categories)
 @router.callback_query(F.data == "shop")
 async def shop_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Показывает пользователю список категорий магазина.
+    Show list of shop categories.
     """
     categories = get_all_categories()
     markup = paginated_keyboard(
@@ -37,16 +39,16 @@ async def shop_callback_handler(call: CallbackQuery, state: FSMContext):
         back_cb="back_to_menu",
         nav_cb_prefix="categories-page_",
     )
-    await call.message.edit_text("🏪 Категории магазина", reply_markup=markup)
+    await call.message.edit_text(localize("shop.categories.title"), reply_markup=markup)
     await state.set_state(ShopStates.viewing_categories)
 
 
-# --- Пагинация категорий — БЕЗ состояния
+# --- Categories pagination — stateless
 @router.callback_query(F.data.startswith('categories-page_'))
 async def navigate_categories(call: CallbackQuery):
     """
-    Пагинация по списку категорий магазина.
-    Формат: categories-page_{page}
+    Pagination across shop categories.
+    Format: categories-page_{page}
     """
     parts = call.data.split('_', 1)
     current_index = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
@@ -65,14 +67,14 @@ async def navigate_categories(call: CallbackQuery):
         back_cb="back_to_menu",
         nav_cb_prefix="categories-page_"
     )
-    await call.message.edit_text('🏪 Категории магазина', reply_markup=markup)
+    await call.message.edit_text(localize('shop.categories.title'), reply_markup=markup)
 
 
-# --- Открыть список товаров категории — БЕЗ состояния
+# --- Open items of a category — stateless
 @router.callback_query(F.data.startswith('category_'))
 async def items_list_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Показывает список товаров выбранной категории.
+    Show items of selected category.
     """
     category_name = call.data[9:]
     goods = get_all_items(category_name)
@@ -85,20 +87,20 @@ async def items_list_callback_handler(call: CallbackQuery, state: FSMContext):
         back_cb="shop",
         nav_cb_prefix=f"goods-page_{category_name}_",
     )
-    await call.message.edit_text("🏪 Выберите нужный товар", reply_markup=markup)
+    await call.message.edit_text(localize("shop.goods.choose"), reply_markup=markup)
     await state.set_state(ShopStates.viewing_goods)
 
 
-# --- Пагинация товаров в категории
+# --- Items pagination inside a category
 @router.callback_query(F.data.startswith('goods-page_'), ShopStates.viewing_goods)
 async def navigate_goods(call: CallbackQuery):
     """
-    Пагинация по списку товаров в выбранной категории.
-    Формат: goods-page_{category}_{page}
+    Pagination for items inside selected category.
+    Format: goods-page_{category}_{page}
     """
     prefix = "goods-page_"
     tail = call.data[len(prefix):]  # "{category_name}_{page}"
-    category_name, current_index = tail.rsplit("_", 1)  # <-- rsplit защищает от '_' в категории
+    category_name, current_index = tail.rsplit("_", 1)  # rsplit handles '_' inside category
     current_index = int(current_index)
 
     goods = get_all_items(category_name)
@@ -111,43 +113,44 @@ async def navigate_goods(call: CallbackQuery):
         back_cb="shop",
         nav_cb_prefix=f"goods-page_{category_name}_",
     )
-    await call.message.edit_text("🏪 Выберите нужный товар", reply_markup=markup)
+    await call.message.edit_text(localize("shop.goods.choose"), reply_markup=markup)
 
 
-# --- Карточка товара — БЕЗ состояния
+# --- Item card — stateless (so "Back" always works to reopen it)
 @router.callback_query(F.data.startswith('item_'))
 async def item_info_callback_handler(call: CallbackQuery):
     """
-    Показывает подробную информацию о товаре.
-    Работает всегда (без FSM), чтобы «Назад» из любых мест открывал карточку.
+    Show detailed information about the item.
     """
     item_name = call.data[5:]
     item_info_list = get_item_info(item_name)
     if not item_info_list:
-        await call.answer("Товар не найден", show_alert=True)
+        await call.answer(localize("shop.item.not_found"), show_alert=True)
         return
 
     category = item_info_list['category_name']
-    quantity = (
-        'Количество - неограниченно'
+    quantity_line = (
+        localize("shop.item.quantity_unlimited")
         if check_value(item_name)
-        else f'Количество - {select_item_values_amount(item_name)} шт.'
+        else localize("shop.item.quantity_left", count=select_item_values_amount(item_name))
     )
     markup = item_info(item_name, category)
     await call.message.edit_text(
-        f'🏪 Товар {item_name}\n'
-        f'Описание: {item_info_list["description"]}\n'
-        f'Цена - {item_info_list["price"]}₽\n'
-        f'{quantity}',
-        reply_markup=markup
+        "\n".join([
+            localize("shop.item.title", name=item_name),
+            localize("shop.item.description", description=item_info_list["description"]),
+            localize("shop.item.price", amount=item_info_list["price"], currency=EnvKeys.PAY_CURRENCY),
+            quantity_line,
+        ]),
+        reply_markup=markup,
     )
 
 
-# --- Купленные товары пользователя (эта часть оставляем с FSM)
+# --- User's purchased items
 @router.callback_query(F.data == "bought_items")
 async def bought_items_callback_handler(call: CallbackQuery):
     """
-    Показывает список купленных пользователем товаров (со своей пагинацией).
+    Show list of user's purchased items (with pagination).
     """
     user_id = call.from_user.id
     bought_goods = select_bought_items(user_id) or []
@@ -161,19 +164,19 @@ async def bought_items_callback_handler(call: CallbackQuery):
         back_cb="profile",
         nav_cb_prefix="bought-goods-page_user_"
     )
-    await call.message.edit_text("Купленные товары:", reply_markup=markup)
+    await call.message.edit_text(localize("purchases.title"), reply_markup=markup)
 
 
-# --- Пагинация купленных товаров
+# --- Purchased items pagination
 @router.callback_query(F.data.startswith('bought-goods-page_'))
 async def navigate_bought_items(call: CallbackQuery):
     """
-    Пагинация по списку купленных товаров пользователя.
-    Формат: 'bought-goods-page_{data}_{page}', где data = 'user' или user_id.
+    Pagination for user's purchased items.
+    Format: 'bought-goods-page_{data}_{page}', where data = 'user' or user_id.
     """
     parts = call.data.split('_')
     if len(parts) < 3:
-        await call.answer("Некорректные данные пагинации")
+        await call.answer(localize("purchases.pagination.invalid"))
         return
 
     data = parts[1]
@@ -206,27 +209,26 @@ async def navigate_bought_items(call: CallbackQuery):
         back_cb=back_cb,
         nav_cb_prefix=f"bought-goods-page_{data}_"
     )
-    await call.message.edit_text("Купленные товары:", reply_markup=markup)
+    await call.message.edit_text(localize("purchases.title"), reply_markup=markup)
 
 
-# --- Информация о купленном товаре
+# --- Purchased item details
 @router.callback_query(F.data.startswith('bought-item:'))
 async def bought_item_info_callback_handler(call: CallbackQuery):
     """
-    Показывает детальную информацию о купленном товаре.
+    Show details for a purchased item.
     """
-    _, item_id, back_data = call.data.split(':', 2)
+    trash, item_id, back_data = call.data.split(':', 2)
     item = get_bought_item_info(item_id)
     if not item:
-        await call.answer("Покупка не найдена", show_alert=True)
+        await call.answer(localize("purchases.item.not_found"), show_alert=True)
         return
 
-    await call.message.edit_text(
-        f'<b>🧾 Товар</b>: <code>{item["item_name"]}</code>\n'
-        f'<b>💵 Цена</b>: <code>{item["price"]}</code>₽\n'
-        f'<b>🕒 Дата покупки</b>: <code>{item["bought_datetime"]}</code>\n'
-        f'<b>🧾 Уникальный ID</b>: <code>{item["unique_id"]}</code>\n'
-        f'<b>🔑 Значение</b>:\n<code>{item["value"]}</code>',
-        parse_mode='HTML',
-        reply_markup=back(back_data)
-    )
+    text = "\n".join([
+        localize("purchases.item.name", name=item["item_name"]),
+        localize("purchases.item.price", amount=item["price"], currency=EnvKeys.PAY_CURRENCY),
+        localize("purchases.item.datetime", dt=item["bought_datetime"]),
+        localize("purchases.item.unique_id", uid=item["unique_id"]),
+        localize("purchases.item.value", value=item["value"]),
+    ])
+    await call.message.edit_text(text, parse_mode='HTML', reply_markup=back(back_data))

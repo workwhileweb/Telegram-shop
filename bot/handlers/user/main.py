@@ -14,27 +14,28 @@ from bot.database.methods import (
 from bot.handlers.other import check_sub_channel, get_bot_info
 from bot.keyboards import main_menu, back, simple_buttons, profile_keyboard
 from bot.misc import EnvKeys
+from bot.i18n import localize
 
-# Импортируем дочерние роутеры
+# Importing child routers
 from bot.handlers.user.balance_and_payment import router as balance_and_payment_router
 from bot.handlers.user.shop_and_goods import router as shop_and_goods_router
 
 router = Router()
 
 
-# FSM сценарии
+# FSM for user menu
 class UserStates(StatesGroup):
     main_menu = State()
 
 
-# --- /start
+# /start
 @router.message(F.text.startswith('/start'))
 async def start(message: Message, state: FSMContext):
     """
-    Обрабатывает команду /start:
-    - Регистрирует пользователя (если новый)
-    - Проверяет подписку на канал (если включена)
-    - Показывает главное меню
+    Handle /start:
+    - Ensure user exists (register if new)
+    - (Optional) Check channel subscription
+    - Show the main menu
     """
     if message.chat.type != ChatType.PRIVATE:
         return
@@ -42,133 +43,160 @@ async def start(message: Message, state: FSMContext):
     user_id = message.from_user.id
     await state.clear()
 
-    owner = select_max_role_id()
+    owner_max_role = select_max_role_id()
     referral_id = message.text[7:] if message.text[7:] != str(user_id) else None
-    user_role = owner if str(user_id) == EnvKeys.OWNER_ID else 1
-    create_user(telegram_id=user_id, registration_date=datetime.datetime.now(), referral_id=referral_id, role=user_role)
+    user_role = owner_max_role if str(user_id) == EnvKeys.OWNER_ID else 1
 
-    chat = EnvKeys.CHANNEL_URL.lstrip('https://t.me/') if EnvKeys.CHANNEL_URL else None
+    # registration_date is DateTime
+    create_user(
+        telegram_id=int(user_id),
+        registration_date=datetime.datetime.now(),
+        referral_id=referral_id,
+        role=user_role
+    )
+
+    # Parse channel username safely from ENV
+    channel_url = EnvKeys.CHANNEL_URL or ""
+    parsed = urlparse(channel_url)
+    channel_username = (
+                           parsed.path.lstrip('/')
+                           if parsed.path else channel_url.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
+                       ) or None
+
     role_data = check_role(user_id)
 
+    # Optional subscription check
     try:
-        if chat:
-            chat_member = await message.bot.get_chat_member(chat_id=f'@{chat}', user_id=user_id)
+        if channel_username:
+            chat_member = await message.bot.get_chat_member(chat_id=f'@{channel_username}', user_id=user_id)
             if not await check_sub_channel(chat_member):
                 markup = simple_buttons([
-                    ("Подписаться", f"https://t.me/{chat}"),
-                    ("Проверить", "sub_channel_done")
+                    (localize("btn.channel"), f"https://t.me/{channel_username}"),
+                    (localize("btn.check_subscription"), "sub_channel_done"),
                 ], per_row=1)
-                await message.answer('Для начала подпишитесь на новостной канал', reply_markup=markup)
+                await message.answer(localize("subscribe.prompt"), reply_markup=markup)
                 await message.delete()
                 return
     except Exception:
+        # Ignore channel errors (private channel, wrong link, etc.)
         pass
 
-    markup = main_menu(role=role_data, channel=chat, helper=EnvKeys.HELPER_URL)
-    await message.answer('⛩️ Основное меню', reply_markup=markup)
+    markup = main_menu(role=role_data, channel=channel_username, helper=EnvKeys.HELPER_URL)
+    await message.answer(localize("menu.title"), reply_markup=markup)
     await message.delete()
     await state.set_state(UserStates.main_menu)
 
 
-# --- Кнопка "назад в меню"
+# Back to menu
 @router.callback_query(F.data == "back_to_menu")
 async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Возврат пользователя в главное меню.
+    Return user to the main menu.
     """
     user_id = call.from_user.id
     user = check_user(user_id)
-    markup = main_menu(role=user.role_id, channel=EnvKeys.CHANNEL_URL, helper=EnvKeys.HELPER_URL)
-    await call.message.edit_text('⛩️ Основное меню', reply_markup=markup)
+
+    channel_url = EnvKeys.CHANNEL_URL or ""
+    parsed = urlparse(channel_url)
+    channel_username = (
+                           parsed.path.lstrip('/')
+                           if parsed.path else channel_url.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
+                       ) or None
+
+    markup = main_menu(role=user.role_id, channel=channel_username, helper=EnvKeys.HELPER_URL)
+    await call.message.edit_text(localize("menu.title"), reply_markup=markup)
     await state.set_state(UserStates.main_menu)
 
 
-# --- Правила
+# Rules
 @router.callback_query(F.data == "rules")
 async def rules_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Показывает текст правил, если они заданы.
+    Show rules text if provided in ENV.
     """
     rules_data = EnvKeys.RULES
     if rules_data:
         await call.message.edit_text(rules_data, reply_markup=back("back_to_menu"))
     else:
-        await call.answer('❌ Правила не были добавлены')
+        await call.answer(localize("rules.not_set"))
     await state.clear()
 
 
-# --- Профиль пользователя
+# Profile
 @router.callback_query(F.data == "profile")
 async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Отправляет пользователю его профиль (баланс, покупки, id и т.д.).
+    Send profile info (balance, purchases count, id, etc.).
     """
     user_id = call.from_user.id
-    user = call.from_user
+    tg_user = call.from_user
     user_info = check_user(user_id)
     balance = user_info.balance
     operations = select_user_operations(user_id)
     overall_balance = sum(operations) if operations else 0
     items = select_user_items(user_id)
     referral = EnvKeys.REFERRAL_PERCENT
+
     markup = profile_keyboard(referral, items)
-    await call.message.edit_text(
-        f"👤 <b>Профиль</b> — {user.first_name}\n"
-        f"🆔 <b>ID</b> — <code>{user_id}</code>\n"
-        f"💳 <b>Баланс</b> — <code>{balance}</code> ₽\n"
-        f"💵 <b>Всего пополнено</b> — <code>{overall_balance}</code> ₽\n"
-        f"🎁 <b>Куплено товаров</b> — {items} шт",
-        reply_markup=markup,
-        parse_mode='HTML'
+    text = (
+        f"{localize('profile.caption', name=tg_user.first_name)}\n"
+        f"{localize('profile.id', id=user_id)}\n"
+        f"{localize('profile.balance', amount=balance, currency=EnvKeys.PAY_CURRENCY)}\n"
+        f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY)}\n"
+        f"{localize('profile.purchased_count', count=items)}"
     )
+    await call.message.edit_text(text, reply_markup=markup, parse_mode='HTML')
     await state.clear()
 
 
-# --- Реферальная система
+# Referral system
 @router.callback_query(F.data == "referral_system")
 async def referral_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Показывает информацию о рефералах и реферальную ссылку пользователя.
+    Show referral info and personal invite link.
     """
     user_id = call.from_user.id
     referrals = check_user_referrals(user_id)
     referral_percent = EnvKeys.REFERRAL_PERCENT
     bot_username = await get_bot_info(call)
-    await call.message.edit_text(
-        f'💚 Реферальная система\n'
-        f'🔗 Ссылка: https://t.me/{bot_username}?start={user_id}\n'
-        f'Количество рефералов: {referrals}\n'
-        f'📔 Реферальная система позволит Вам заработать деньги без всяких вложений. '
-        f'Необходимо всего лишь распространять свою реферальную ссылку и Вы будете получать '
-        f'{referral_percent}% от суммы пополнений Ваших рефералов на Ваш баланс бота.',
-        reply_markup=back('profile')
+
+    text = (
+        f"{localize('referral.title')}\n"
+        f"{localize('referral.link', bot_username=bot_username, user_id=user_id)}\n"
+        f"{localize('referral.count', count=referrals)}\n"
+        f"{localize('referral.description', percent=referral_percent)}"
     )
+    await call.message.edit_text(text, reply_markup=back('profile'))
     await state.clear()
 
 
-# --- Проверка подписки (после клика "Проверить")
+# Subscription re-check
 @router.callback_query(F.data == "sub_channel_done")
 async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
     """
-    Проверяет подписку пользователя на канал после нажатия "Проверить".
+    Re-check channel subscription after user clicks "Check".
     """
     user_id = call.from_user.id
-    chat = EnvKeys.CHANNEL_URL
+    chat = EnvKeys.CHANNEL_URL or ""
     parsed_url = urlparse(chat)
-    channel_username = parsed_url.path.lstrip('/')
+    channel_username = (
+                           parsed_url.path.lstrip('/')
+                           if parsed_url.path else chat.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
+                       ) or None
     helper = EnvKeys.HELPER_URL
-    chat_member = await call.bot.get_chat_member(chat_id='@' + channel_username, user_id=user_id)
 
-    if await check_sub_channel(chat_member):
-        user = check_user(user_id)
-        role = user.role_id
-        markup = main_menu(role, chat, helper)
-        await call.message.edit_text('⛩️ Основное меню', reply_markup=markup)
-        await state.set_state(UserStates.main_menu)
-    else:
-        await call.answer('Вы не подписались')
+    if channel_username:
+        chat_member = await call.bot.get_chat_member(chat_id='@' + channel_username, user_id=user_id)
+        if await check_sub_channel(chat_member):
+            user = check_user(user_id)
+            markup = main_menu(user.role_id, channel_username, helper)
+            await call.message.edit_text(localize("menu.title"), reply_markup=markup)
+            await state.set_state(UserStates.main_menu)
+            return
+
+    await call.answer(localize("errors.not_subscribed"))
 
 
-# Подключаем все вложенные роутеры (user-разделы)
+# Mount nested routers
 router.include_router(balance_and_payment_router)
 router.include_router(shop_and_goods_router)

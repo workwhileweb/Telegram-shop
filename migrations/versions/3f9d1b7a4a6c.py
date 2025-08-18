@@ -1,7 +1,7 @@
 """Switch money to Numeric(12,2), dates to DateTime, add FKs & indexes
 
 Revision ID: 3f9d1b7a4a6c
-Revises: 82f4e758ad31
+Revises: a2e0ad4f2c8d
 Create Date: 2025-08-08 12:00:00
 """
 from alembic import op
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "3f9d1b7a4a6c"
-down_revision = "82f4e758ad31"
+down_revision = "a2e0ad4f2c8d"
 branch_labels = None
 depends_on = None
 
@@ -17,16 +17,12 @@ depends_on = None
 def upgrade():
     bind = op.get_bind()
 
-    # --- 0) SQLite safety: убираем хвосты от упавших батчей
     if bind.dialect.name == "sqlite":
         insp = sa.inspect(bind)
         for tmp in ("_alembic_tmp_users", "_alembic_tmp_item_values"):
             if tmp in insp.get_table_names():
                 op.execute(sa.text(f'DROP TABLE "{tmp}"'))
 
-    # --- 1) Дедупликация item_values перед добавлением UNIQUE(item_name, value)
-    # Оставляем запись с минимальным id в каждой группе (item_name, value), остальные удаляем.
-    # учитываем NULL в value через COALESCE, чтобы NULL==NULL для группировки.
     op.execute(sa.text("""
         DELETE FROM item_values
         WHERE EXISTS (
@@ -50,7 +46,6 @@ def upgrade():
         """)
 
 
-    # --- 2) USERS (batch, FK строго ВНУТРИ batch!)
     with op.batch_alter_table("users", schema=None) as batch:
         batch.alter_column(
             "registration_date",
@@ -115,7 +110,6 @@ def upgrade():
             existing_nullable=False,
         )
         batch.create_index("ix_bought_goods_buyer_id", ["buyer_id"], unique=False)
-    # составной индекс под запросы
     op.create_index(
         "ix_bought_goods_buyer_time",
         "bought_goods",

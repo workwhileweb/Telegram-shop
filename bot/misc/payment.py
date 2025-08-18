@@ -1,19 +1,22 @@
 import aiohttp
 import json
 import math
+from typing import Optional
 
 from aiogram import Bot
 from aiogram.types import LabeledPrice
-from typing import Optional
+
 from bot.misc import EnvKeys
+from bot.i18n import localize
 
-ZERO_DEC_CURRENCIES = {"JPY", "KRW"}  # без копеек/центов
+# Currencies without minor units (no cents)
+ZERO_DEC_CURRENCIES = {"JPY", "KRW"}
 
 
-def rub_to_stars(amount_rub: int) -> int:
+def currency_to_stars(amount_rub: int) -> int:
     """
-    Конвертирует сумму в рублях в целое число звёзд.
-    Округляем вверх (ceil), чтобы не занизить списание.
+    Convert currency amount to integer number of Telegram Stars.
+    round up (ceil) to avoid undercharging.
     """
     return int(math.ceil(float(amount_rub) * EnvKeys.STARS_PER_VALUE))
 
@@ -22,16 +25,17 @@ async def send_stars_invoice(
         bot: Bot,
         chat_id: int,
         amount: int,
-        title: str = "Пополнение баланса",
-        description: str | None = None,
-        payload_extra: dict | None = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        payload_extra: Optional[dict] = None,
 ):
     """
-    Отправляет инвойс Telegram Stars (currency='XTR', provider_token='').
-    total_amount задаётся в наименьших единицах XTR (звёзды * 100).
+    Send Telegram Stars invoice (currency='XTR', provider_token='').
+    LabeledPrice.amount for Stars is a whole number of stars.
     """
-    stars = rub_to_stars(amount)
-    prices = [LabeledPrice(label=f"{stars} ⭐️", amount=stars)]
+    stars = currency_to_stars(amount)
+
+    prices = [LabeledPrice(label=localize("payments.invoice.label.stars", stars=stars), amount=stars)]
     payload = {
         "op": "topup_balance_stars",
         "amount_rub": int(amount),
@@ -42,41 +46,54 @@ async def send_stars_invoice(
 
     await bot.send_invoice(
         chat_id=chat_id,
-        title=title,
-        description=description or f"Пополнение на {amount}₽ через Telegram Stars",
+        title=title or localize("payments.invoice.title.topup"),
+        description=description or localize("payments.invoice.desc.topup.stars", amount=int(amount)),
         payload=json.dumps(payload),
-        provider_token="",  # для Stars должен быть пустым
+        provider_token="",
         currency="XTR",
         prices=prices,
     )
 
 
 def _minor_units_for(currency: str) -> int:
+    """
+    Return multiplier to convert major units to minor units.
+    """
     return 1 if currency.upper() in ZERO_DEC_CURRENCIES else 100
 
 
-async def send_fiat_invoice(*, bot, chat_id: int, amount: int,
-                            title: str = "Пополнение баланса",
-                            description: str = "Оплата через Telegram Payments (карта)"):
+async def send_fiat_invoice(
+        *,
+        bot: Bot,
+        chat_id: int,
+        amount: int,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+):
     """
-    Выставляет инвойс через Telegram Payments (fiat-провайдер).
-    amount — сумма (в основных единицах).
+    Send invoice via Telegram Payments (fiat provider).
+    `amount` is given in major units (e.g., RUB, USD).
     """
     provider_token = EnvKeys.TELEGRAM_PROVIDER_TOKEN
     if not provider_token:
         raise RuntimeError("TELEGRAM_PROVIDER_TOKEN is not set")
 
-    currency = (getattr(EnvKeys, "TELEGRAM_PAY_CURRENCY", None) or "RUB").upper()
+    currency = (getattr(EnvKeys, "PAY_CURRENCY", None) or "RUB").upper()
     multiplier = _minor_units_for(currency)
     amount_minor = int(amount) * multiplier
 
-    prices = [LabeledPrice(label=f"Пополнение {amount} {currency}", amount=amount_minor)]
+    prices = [
+        LabeledPrice(
+            label=localize("payments.invoice.label.fiat", amount=int(amount), currency=currency),
+            amount=amount_minor,
+        )
+    ]
     payload = json.dumps({"type": "balance_topup", "amount": int(amount)})
 
     await bot.send_invoice(
         chat_id=chat_id,
-        title=title,
-        description=description,
+        title=title or localize("payments.invoice.title.topup"),
+        description=description or localize("payments.invoice.desc.topup.fiat"),
         payload=payload,
         provider_token=provider_token,
         currency=currency,
@@ -86,6 +103,10 @@ async def send_fiat_invoice(*, bot, chat_id: int, amount: int,
 
 
 class CryptoPayAPI:
+    """
+    Minimal async client for Crypto Bot API used to create and fetch invoices.
+    """
+
     def __init__(self):
         self.token = EnvKeys.CRYPTO_PAY_TOKEN
         self.base_url = "https://pay.crypt.bot/api"
@@ -108,13 +129,16 @@ class CryptoPayAPI:
     async def create_invoice(
             self,
             amount: float,
-            currency: str = "RUB",
+            currency: str = getattr(EnvKeys, "PAY_CURRENCY", None) or "RUB",
             accepted_assets: str = "TON,USDT",
             payload: Optional[str] = None,
             description: Optional[str] = None,
             hidden_message: Optional[str] = None,
-            expires_in: int = 1800,
+            expires_in = int,
     ) -> dict:
+        """
+        Create a Crypto Pay invoice for given fiat amount/currency.
+        """
         params = {
             "currency_type": "fiat",
             "fiat": currency,
@@ -133,6 +157,9 @@ class CryptoPayAPI:
         return response.get("result") or {}
 
     async def get_invoice(self, invoice_id: str) -> dict:
+        """
+        Fetch a single invoice by id.
+        """
         params = {"invoice_ids": invoice_id}
         res = await self._request("getInvoices", params)
         items = res.get("result", {}).get("items")
