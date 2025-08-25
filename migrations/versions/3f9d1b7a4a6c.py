@@ -15,43 +15,14 @@ depends_on = None
 
 
 def upgrade():
-    bind = op.get_bind()
-
-    if bind.dialect.name == "sqlite":
-        insp = sa.inspect(bind)
-        for tmp in ("_alembic_tmp_users", "_alembic_tmp_item_values"):
-            if tmp in insp.get_table_names():
-                op.execute(sa.text(f'DROP TABLE "{tmp}"'))
-
-    op.execute(sa.text("""
-        DELETE FROM item_values
-        WHERE EXISTS (
-          SELECT 1
-          FROM item_values iv2
-          WHERE iv2.item_name = item_values.item_name
-            AND COALESCE(iv2.value,'') = COALESCE(item_values.value,'')
-            AND iv2.id < item_values.id
-        )
-    """))
-
-    op.execute("""
-            UPDATE users
-            SET registration_date = CURRENT_TIMESTAMP
-            WHERE registration_date IS NULL OR registration_date = ''
-        """)
-    op.execute("""
-            UPDATE users
-            SET registration_date = CURRENT_TIMESTAMP
-            WHERE typeof(registration_date) NOT IN ('text', 'null')
-        """)
-
-
+    # USERS
     with op.batch_alter_table("users", schema=None) as batch:
         batch.alter_column(
             "registration_date",
             existing_type=sa.VARCHAR(),
             type_=sa.DateTime(timezone=True),
             existing_nullable=False,
+            postgresql_using="registration_date::timestamptz",
             server_default=sa.text("CURRENT_TIMESTAMP"),
         )
         batch.alter_column(
@@ -101,6 +72,7 @@ def upgrade():
             existing_type=sa.VARCHAR(),
             type_=sa.DateTime(timezone=True),
             existing_nullable=False,
+            postgresql_using="NULLIF(bought_datetime, '')::timestamptz",
             server_default=sa.text("CURRENT_TIMESTAMP"),
         )
         batch.alter_column(
@@ -124,6 +96,7 @@ def upgrade():
             existing_type=sa.VARCHAR(),
             type_=sa.DateTime(timezone=True),
             existing_nullable=False,
+            postgresql_using="NULLIF(operation_time, '')::timestamptz",
             server_default=sa.text("CURRENT_TIMESTAMP"),
         )
         batch.alter_column(
@@ -154,7 +127,6 @@ def upgrade():
             type_=sa.String(length=128),
             existing_nullable=False,
         )
-        # created_at (если поля не было)
         batch.add_column(
             sa.Column(
                 "created_at",
@@ -163,12 +135,8 @@ def upgrade():
                 server_default=sa.text("CURRENT_TIMESTAMP"),
             )
         )
-        batch.create_index(
-            "ix_unfinished_operations_user_id", ["user_id"], unique=False
-        )
-        batch.create_index(
-            "ix_unfinished_operations_operation_id", ["operation_id"], unique=True
-        )
+        batch.create_index("ix_unfinished_operations_user_id", ["user_id"], unique=False)
+        batch.create_index("ix_unfinished_operations_operation_id", ["operation_id"], unique=True)
 
 
 def downgrade():

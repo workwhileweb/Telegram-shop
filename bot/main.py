@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
@@ -10,39 +9,29 @@ from bot.handlers import register_all_handlers
 from bot.database.models import register_models
 from bot.logger_mesh import configure_logging
 
-logger, audit = configure_logging(console=False, debug=False)
-
 
 async def __on_start_up(dp: Dispatcher) -> None:
     register_all_handlers(dp)
     register_models()
 
 
-async def start_bot():
+async def start_bot() -> None:
+    configure_logging(console=EnvKeys.LOG_TO_STDOUT == "1", debug=EnvKeys.DEBUG == "1")
     logging.basicConfig(level=logging.INFO)
-    bot = Bot(
-        token=EnvKeys.TOKEN,
-        default=DefaultBotProperties(
-            parse_mode="HTML",
-            link_preview_is_disabled=False,
-            protect_content=False  # if necessary, prohibit forwarding
-        ),
-    )
-    dp = Dispatcher(storage=MemoryStorage())
 
+    dp = Dispatcher(storage=MemoryStorage())
     await __on_start_up(dp)
 
-    try:
-        await dp.start_polling(bot, allowed_updates=["message", "callback_query", "pre_checkout_query"],
-                               handle_signals=False)
-    except asyncio.CancelledError:
-        pass
-    finally:
-        try:
-            await dp.fsm.storage.close()
-        except Exception:
-            pass
-        try:
-            await bot.session.close()
-        except Exception:
-            pass
+    async with Bot(
+            token=EnvKeys.TOKEN,
+            default=DefaultBotProperties(
+                parse_mode="HTML",
+                link_preview_is_disabled=False,
+                protect_content=False,
+            ),
+    ) as bot:
+        await dp.start_polling(
+            bot,
+            allowed_updates=["message", "callback_query", "pre_checkout_query"],
+            handle_signals=False,
+        )

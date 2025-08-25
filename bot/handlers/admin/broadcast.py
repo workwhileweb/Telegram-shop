@@ -1,6 +1,5 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
-from aiogram.filters.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 
 from bot.i18n import localize
@@ -9,14 +8,11 @@ from bot.database.methods import get_all_users
 from bot.keyboards import back, close
 from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
+from bot.states import BroadcastFSM
 
 import asyncio
 
 router = Router()
-
-
-class BroadcastFSM(StatesGroup):
-    waiting_message = State()
 
 
 # --- Start broadcast: ask admin for the message text

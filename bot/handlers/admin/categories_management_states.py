@@ -1,6 +1,5 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
-from aiogram.filters.state import StatesGroup, State
 
 from bot.i18n import localize
 from bot.database.models import Permission
@@ -10,21 +9,9 @@ from bot.database.methods import (
 from bot.keyboards.inline import back, simple_buttons
 from bot.filters import HasPermissionFilter
 from bot.logger_mesh import audit_logger
+from bot.states import CategoryFSM
 
 router = Router()
-
-
-class CategoryFSM(StatesGroup):
-    """
-    FSM states for category management:
-    - add,
-    - delete,
-    - rename.
-    """
-    waiting_add_category = State()
-    waiting_delete_category = State()
-    waiting_update_category = State()
-    waiting_update_category_name = State()
 
 
 # --- Main "Categories management" submenu (permission: SHOP_MANAGE)

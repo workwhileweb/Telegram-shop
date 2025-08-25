@@ -45,16 +45,16 @@ class Role(Database.BASE):
                       Permission.ADMINS_MANAGE, Permission.OWN],
         }
         default_role = 'USER'
-        for r in roles:
-            role = Database().session.query(Role).filter_by(name=r).first()
-            if role is None:
-                role = Role(name=r)
-            role.reset_permissions()
-            for perm in roles[r]:
-                role.add_permission(perm)
-            role.default = (role.name == default_role)
-            Database().session.add(role)
-        Database().session.commit()
+        with Database().session() as s:
+            for r, perms in roles.items():
+                role = s.query(Role).filter_by(name=r).first()
+                if role is None:
+                    role = Role(name=r)
+                    s.add(role)
+                role.reset_permissions()
+                for perm in perms:
+                    role.add_permission(perm)
+                role.default = (role.name == default_role)
 
     def add_permission(self, perm):
         if not self.has_permission(perm):
@@ -109,7 +109,8 @@ class Goods(Database.BASE):
     name = Column(String(100), primary_key=True)
     price = Column(Numeric(12, 2), nullable=False)
     description = Column(Text, nullable=False)
-    category_name = Column(String(100), ForeignKey('categories.name', ondelete="CASCADE"), nullable=False, index=True)
+    category_name = Column(String(100), ForeignKey('categories.name', ondelete="CASCADE", onupdate="CASCADE"),
+                           nullable=False, index=True)
     category = relationship("Categories", back_populates="item")
     values = relationship("ItemValues", back_populates="item")
 
@@ -124,7 +125,8 @@ class Goods(Database.BASE):
 class ItemValues(Database.BASE):
     __tablename__ = 'item_values'
     id = Column(Integer, primary_key=True)
-    item_name = Column(String(100), ForeignKey('goods.name', ondelete="CASCADE"), nullable=False, index=True)
+    item_name = Column(String(100), ForeignKey('goods.name', ondelete="CASCADE", onupdate="CASCADE"), nullable=False,
+                       index=True)
     value = Column(Text, nullable=True)
     is_infinity = Column(Boolean, nullable=False)
     item = relationship("Goods", back_populates="values")
@@ -175,6 +177,23 @@ class Operations(Database.BASE):
         self.user_id = user_id
         self.operation_value = operation_value
         self.operation_time = operation_time
+
+
+class Payments(Database.BASE):
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True)
+    provider = Column(String(32), nullable=False, index=True)
+    external_id = Column(String(128), nullable=False)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), nullable=False, index=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    currency = Column(String(8), nullable=False)
+    status = Column(String(16), nullable=False, default="pending")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('provider', 'external_id', name='uq_payment_provider_ext'),
+    )
 
 
 def register_models():

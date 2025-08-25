@@ -1,32 +1,38 @@
-import sqlite3
-from typing import Final
-from sqlalchemy import create_engine
-from sqlalchemy import event
+from contextlib import contextmanager
+from sqlalchemy import create_engine, Engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+from bot.database.dsn import dsn
 from bot.misc import SingletonMeta
 
 
-def _sqlite_fk_on_connect(dbapi_connection, connection_record):
-    if isinstance(dbapi_connection, sqlite3.Connection):
-        dbapi_connection.execute("PRAGMA foreign_keys=ON")
-
-
 class Database(metaclass=SingletonMeta):
-    BASE: Final = declarative_base()
+    BASE = declarative_base()
 
     def __init__(self):
-        self.__engine = create_engine(f'sqlite:///database.db', echo=False, pool_pre_ping=True)
-        if self.__engine.dialect.name == "sqlite":
-            event.listen(self.__engine, "connect", _sqlite_fk_on_connect)
-        session = sessionmaker(bind=self.__engine)
-        self.__session = session()
+        self.__engine: Engine = create_engine(
+            dsn(),
+            echo=False,
+            pool_pre_ping=True,
+            future=True,
+        )
+        self.__SessionLocal = sessionmaker(bind=self.__engine, autoflush=False, autocommit=False, future=True,
+                                           expire_on_commit=False)
 
-    @property
+    @contextmanager
     def session(self):
-        return self.__session
+        """Contextual session: guaranteed to close/rollback on error."""
+        db = self.__SessionLocal()
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     @property
-    def engine(self):
+    def engine(self) -> Engine:
         return self.__engine

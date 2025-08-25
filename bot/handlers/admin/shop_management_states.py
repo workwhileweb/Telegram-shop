@@ -1,7 +1,6 @@
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from aiogram.filters.state import StatesGroup, State
 from aiogram.types import FSInputFile
 
 from pathlib import Path
@@ -19,13 +18,9 @@ from bot.keyboards import back, paginated_keyboard, simple_buttons
 from bot.filters import HasPermissionFilter
 from bot.misc import EnvKeys
 from bot.i18n import localize
+from bot.states import GoodsFSM
 
 router = Router()
-
-
-class ShopManageFSM(StatesGroup):
-    """FSM for shop-management flows."""
-    waiting_bought_item_id = State()
 
 
 # --- Main shop-management menu
@@ -219,11 +214,11 @@ async def show_bought_item_callback_handler(call: CallbackQuery, state: FSMConte
         localize("admin.shop.bought.prompt_id"),
         reply_markup=back("shop_management"),
     )
-    await state.set_state(ShopManageFSM.waiting_bought_item_id)
+    await state.set_state(GoodsFSM.waiting_bought_item_id)
 
 
 # --- Handle unique ID input and show purchased item
-@router.message(ShopManageFSM.waiting_bought_item_id, F.text, HasPermissionFilter(Permission.SHOP_MANAGE))
+@router.message(GoodsFSM.waiting_bought_item_id, F.text, HasPermissionFilter(Permission.SHOP_MANAGE))
 async def process_item_show(message: Message, state: FSMContext):
     """
     Show purchased item details by unique ID.

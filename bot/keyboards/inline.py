@@ -99,7 +99,7 @@ def paginated_keyboard(
         kb.button(text=item_text(item), callback_data=item_callback(item))
     kb.adjust(1)
 
-    # расчёт страниц
+    # page calculation
     max_page = max((total - 1) // per_page, 0)
     if max_page > 0:
         nav_buttons = []
@@ -163,4 +163,15 @@ def question_buttons(question: str, back_data: str) -> InlineKeyboardMarkup:
     kb.button(text=localize("btn.no"), callback_data=f"{question}_no")
     kb.button(text=localize("btn.back"), callback_data=back_data)
     kb.adjust(2)
+    return kb.as_markup()
+
+
+def check_sub(channel_username: str) -> InlineKeyboardMarkup:
+    """
+    checks the channel subscription.
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=localize("btn.channel"), url=f"https://t.me/{channel_username}")
+    kb.button(text=localize("btn.check_subscription"), callback_data="sub_channel_done")
+    kb.adjust(1)
     return kb.as_markup()

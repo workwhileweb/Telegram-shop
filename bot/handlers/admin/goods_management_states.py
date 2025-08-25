@@ -1,6 +1,5 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
-from aiogram.filters.state import StatesGroup, State
 
 from bot.i18n import localize
 from bot.database.models import Permission
@@ -14,14 +13,9 @@ from bot.keyboards.inline import (
 from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
 from bot.misc import EnvKeys
+from bot.states import GoodsFSM
 
 router = Router()
-
-
-class GoodsFSM(StatesGroup):
-    """FSM for position (goods) management scenarios."""
-    waiting_item_name_delete = State()
-    waiting_item_name_show = State()
 
 
 # --- Main positions management menu (SHOP_MANAGE)

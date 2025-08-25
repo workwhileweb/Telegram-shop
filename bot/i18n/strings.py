@@ -243,6 +243,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "payments.referral.bonus": "✅ Вы получили {amount} {currency} от вашего реферала {name}",
         "payments.invoice.title.topup": "Пополнение баланса",
         "payments.invoice.label.stars": "{stars} ⭐️",
+        "payments.already_processed": "Этот платеж уже был обработан ✅",
+        "payments.processing_error": "Ошибка при обработке платежа. Попробуйте позже.",
 
         # === Shop Browsing (Categories / Goods / Item Page) ===
         "shop.categories.title": "🏪 Категории магазина",
@@ -274,6 +276,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "errors.pagination_invalid": "Некорректные данные пагинации",
         "errors.invalid_data": "❌ Неправильные данные",
         "errors.id_should_be_number": "❌ ID должен быть числом.",
+        "errors.channel.telegram_not_found": "Я не могу писать в канал. Добавьте меня админом канала для заливов @{channel} с правом публиковать сообщения.",
+        "errors.channel.telegram_forbidden_error": "Канал не найден. Проверьте username канала для заливов @{channel}.",
+        "errors.channel.telegram_bad_request": "Не удалось отправить в канал для заливов: {e}",
     },
 
     "en": {
@@ -521,6 +526,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "payments.invoice.desc.topup.fiat": "Pay via Telegram Payments (card)",
         "payments.invoice.label.fiat": "Top-up {amount} {currency}",
         "payments.invoice.label.stars": "{stars} ⭐️",
+        "payments.already_processed": "This payment has already been processed ✅",
+        "payments.processing_error": "Payment processing error. Please try again later.",
 
         # === Shop Browsing (Categories / Goods / Item Page) ===
         "shop.categories.title": "🏪 Shop categories",
@@ -552,5 +559,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "errors.pagination_invalid": "Invalid pagination data",
         "errors.invalid_data": "❌ Invalid data",
         "errors.id_should_be_number": "❌ ID must be a number.",
+        "errors.channel.telegram_not_found": "I can't write to the channel. Add me as a channel admin for uploads @{channel} with the right to publish messages.",
+        "errors.channel.telegram_forbidden_error": "Channel not found. Check the channel username for uploads @{channel}.",
+        "errors.channel.telegram_bad_request": "Failed to send to the channel for uploads: {e}",
     },
 }

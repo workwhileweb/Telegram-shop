@@ -1,6 +1,8 @@
+from urllib.parse import urlparse
+
 from aiogram import Router, F
+from aiogram.exceptions import TelegramForbiddenError, TelegramNotFound, TelegramBadRequest
 from aiogram.types import CallbackQuery, Message
-from aiogram.filters.state import StatesGroup, State
 
 from bot.database.models import Permission
 from bot.database.methods import (
@@ -11,27 +13,9 @@ from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
 from bot.misc import EnvKeys
 from bot.i18n import localize
+from bot.states import AddItemFSM
 
 router = Router()
-
-
-class AddItemFSM(StatesGroup):
-    """
-    FSM for step-by-step creation of a position (product):
-    1) name,
-    2) description,
-    3) price,
-    4) category,
-    5) mode (infinite or not),
-    6) input product values (single / multiple).
-    """
-    waiting_item_name = State()
-    waiting_item_description = State()
-    waiting_item_price = State()
-    waiting_category = State()
-    waiting_infinity = State()
-    waiting_values = State()
-    waiting_single_value = State()
 
 
 # --- Start creation scenario (SHOP_MANAGE permission required)
@@ -71,7 +55,8 @@ async def add_item_description(message: Message, state):
     Save description and proceed to price input.
     """
     await state.update_data(item_description=(message.text or "").strip())
-    await message.answer(localize('admin.goods.add.prompt.price', currency=EnvKeys.PAY_CURRENCY), reply_markup=back('goods_management'))
+    await message.answer(localize('admin.goods.add.prompt.price', currency=EnvKeys.PAY_CURRENCY),
+                         reply_markup=back('goods_management'))
     await state.set_state(AddItemFSM.waiting_item_price)
 
 
@@ -214,12 +199,17 @@ async def finish_adding_items_callback_handler(call: CallbackQuery, state):
 
     await call.message.edit_text("\n".join(text_lines), parse_mode="HTML", reply_markup=back("goods_management"))
 
-    # Optionally notify a group
-    group_id = EnvKeys.GROUP_ID if EnvKeys.GROUP_ID != -988765433 else None
-    if group_id:
+    # Optionally notify a channel
+    channel_url = EnvKeys.CHANNEL_URL or ""
+    parsed = urlparse(channel_url)
+    channel_username = (
+                           parsed.path.lstrip('/')
+                           if parsed.path else channel_url.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
+                       ) or None
+    if channel_username:
         try:
-            await call.message.bot.send_message(
-                chat_id=group_id,
+            await call.bot.send_message(
+                chat_id=f"@{channel_username}",
                 text=(
                     f"🎁 {localize('shop.group.new_upload')}\n"
                     f"🏷️ {localize('shop.group.item')}: <b>{item_name}</b>\n"
@@ -227,8 +217,12 @@ async def finish_adding_items_callback_handler(call: CallbackQuery, state):
                 ),
                 parse_mode='HTML'
             )
-        except Exception:
-            pass
+        except TelegramForbiddenError:
+            await call.answer(localize("errors.channel.telegram_forbidden_error", channel=channel_username))
+        except TelegramNotFound:
+            await call.answer(localize("errors.channel.telegram_not_found", channel=channel_username))
+        except TelegramBadRequest as e:
+            await call.answer(localize("errors.channel.telegram_bad_request", e=e))
 
     admin_info = await call.message.bot.get_chat(call.from_user.id)
     audit_logger.info(
@@ -259,12 +253,17 @@ async def finish_adding_item_callback_handler(message: Message, state):
     # 2) Add 1 “infinite” value
     add_values_to_item(item_name, single_value, True)
 
-    # 3) Optionally notify a group
-    group_id = EnvKeys.GROUP_ID if EnvKeys.GROUP_ID != -988765433 else None
-    if group_id:
+    # 3) Optionally notify a channel
+    channel_url = EnvKeys.CHANNEL_URL or ""
+    parsed = urlparse(channel_url)
+    channel_username = (
+                           parsed.path.lstrip('/')
+                           if parsed.path else channel_url.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
+                       ) or None
+    if channel_username:
         try:
             await message.bot.send_message(
-                chat_id=group_id,
+                chat_id=f"@{channel_username}",
                 text=(
                     f"🎁 {localize('shop.group.new_upload')}\n"
                     f"🏷️ {localize('shop.group.item')}: <b>{item_name}</b>\n"
@@ -272,8 +271,12 @@ async def finish_adding_item_callback_handler(message: Message, state):
                 ),
                 parse_mode='HTML'
             )
-        except Exception:
-            pass
+        except TelegramForbiddenError:
+            await message.answer(localize("errors.channel.telegram_forbidden_error", channel=channel_username))
+        except TelegramNotFound:
+            await message.answer(localize("errors.channel.telegram_not_found", channel=channel_username))
+        except TelegramBadRequest as e:
+            await message.answer(localize("errors.channel.telegram_bad_request", e=e))
 
     await message.answer(localize('admin.goods.add.single.created'), reply_markup=back('goods_management'))
     admin_info = await message.bot.get_chat(message.from_user.id)

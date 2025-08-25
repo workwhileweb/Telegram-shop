@@ -5,12 +5,13 @@ from decimal import Decimal, ROUND_HALF_UP
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, PreCheckoutQuery, SuccessfulPayment
 from aiogram.fsm.context import FSMContext
-from aiogram.filters.state import StatesGroup, State
+from sqlalchemy.exc import IntegrityError
 
 from bot.database.methods import (
     get_user_balance, get_item_info, get_item_value, buy_item, add_bought_item,
     buy_item_for_balance,
-    get_user_referral, update_balance, create_operation
+    get_user_referral, update_balance, create_operation, mark_payment_succeeded, create_pending_payment,
+    ensure_payment_succeeded
 )
 from bot.keyboards import back, payment_menu, close, get_payment_choice
 from bot.logger_mesh import audit_logger
@@ -19,14 +20,9 @@ from bot.handlers.other import _any_payment_method_enabled
 from bot.misc.payment import CryptoPayAPI, send_stars_invoice, send_fiat_invoice
 from bot.filters import ValidAmountFilter
 from bot.i18n import localize
+from bot.states import BalanceStates
 
 router = Router()
-
-
-class BalanceStates(StatesGroup):
-    """FSM states for the balance top-up flow."""
-    waiting_amount = State()
-    waiting_payment = State()
 
 
 # --- Start top-up
@@ -69,7 +65,7 @@ async def invalid_amount(message: Message, state: FSMContext):
     Tell user the amount is invalid.
     """
     await message.answer(
-        localize("payments.replenish_invalid", min_amount=EnvKeys.MIN_AMOUNT, max_amount=EnvKeys.MIN_AMOUNT,
+        localize("payments.replenish_invalid", min_amount=EnvKeys.MIN_AMOUNT, max_amount=EnvKeys.MAX_AMOUNT,
                  currency=EnvKeys.PAY_CURRENCY),
         reply_markup=back('replenish_balance')
     )
@@ -214,6 +210,12 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
                 except Exception:
                     pass
 
+            status = ensure_payment_succeeded("cryptopay", str(invoice_id), user_id, balance_amount,
+                                              EnvKeys.PAY_CURRENCY)
+            if status == "already":
+                await call.answer(localize("payments.already_processed"), show_alert=True)
+                return
+
             create_operation(user_id, balance_amount, datetime.datetime.now())
             update_balance(user_id, balance_amount)
 
@@ -242,7 +244,14 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
 # --- Telegram Payments pre-checkout
 @router.pre_checkout_query()
 async def pre_checkout_handler(query: PreCheckoutQuery):
-    """Telegram requires answering ok=True before payment proceeds."""
+    """Telegram requires answering ok=True before payment proceeds. Also register pending payment."""
+    try:
+        payload = json.loads(query.invoice_payload or "{}")
+    except Exception:
+        payload = {}
+    amount = int(payload.get("amount", 0))
+    if amount > 0:
+        pass
     await query.answer(ok=True)
 
 
@@ -284,6 +293,28 @@ async def successful_payment_handler(message: Message):
     if amount <= 0:
         await message.answer(localize("payments.unable_determine_amount"), reply_markup=close())
         return
+
+    # Idempotence
+    provider = "telegram" if sp.currency != "XTR" else "stars"
+    external_id = sp.telegram_payment_charge_id or sp.provider_payment_charge_id or f"{provider}:{user_id}:{sp.total_amount}"
+
+    # try to mark the payment as "succeeded". If there is no entry, create pending->succeeded within one transaction.
+    try:
+        ok = mark_payment_succeeded(provider, external_id)
+        if not ok:
+
+            try:
+                create_pending_payment(provider, external_id, user_id, amount, sp.currency)
+            except IntegrityError:
+                pass
+            ok = mark_payment_succeeded(provider, external_id)
+
+        if not ok:
+            # by this point, it's definitely "already processed"
+            await message.answer(localize("payments.already_processed"), reply_markup=close())
+            return
+    except Exception:
+        await message.answer(localize("payments.processing_error"), reply_markup=close())
 
     # Referral bonus (if configured)
     referral_id = get_user_referral(user_id)

@@ -1,7 +1,6 @@
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from aiogram.filters.state import StatesGroup, State
 
 from bot.i18n import localize
 from bot.database.models import Permission
@@ -13,18 +12,13 @@ from bot.database.methods import (
 from bot.keyboards import back, close, paginated_keyboard, simple_buttons
 from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
+from bot.states import UserMgmtStates
 
 import datetime
 
 from bot.misc import EnvKeys
 
 router = Router()
-
-
-class UserMgmtStates(StatesGroup):
-    """FSM for user management flow."""
-    waiting_user_id_for_check = State()
-    waiting_user_replenish = State()
 
 
 # --- Open user management menu
@@ -296,7 +290,8 @@ async def process_replenish_user_balance(message: Message, state: FSMContext):
     text = (message.text or '').strip()
     if not text.isdigit():
         await message.answer(
-            localize('payments.replenish_invalid', min_amount=min_amount, max_amount=max_amount),
+            localize('payments.replenish_invalid', min_amount=min_amount, max_amount=max_amount,
+                     currency=EnvKeys.PAY_CURRENCY),
             reply_markup=back(f'check-user_{user_id}')
         )
         return
@@ -304,7 +299,8 @@ async def process_replenish_user_balance(message: Message, state: FSMContext):
     amount = int(text)
     if not (min_amount <= amount <= max_amount):
         await message.answer(
-            localize('payments.replenish_invalid', min_amount=min_amount, max_amount=max_amount),
+            localize('payments.replenish_invalid', min_amount=min_amount, max_amount=max_amount,
+                     currency=EnvKeys.PAY_CURRENCY),
             reply_markup=back(f'check-user_{user_id}')
         )
         return

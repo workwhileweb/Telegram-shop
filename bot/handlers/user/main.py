@@ -2,7 +2,6 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums.chat_type import ChatType
 from aiogram.fsm.context import FSMContext
-from aiogram.filters.state import State, StatesGroup
 
 from urllib.parse import urlparse
 import datetime
@@ -12,7 +11,7 @@ from bot.database.methods import (
     select_user_operations, select_user_items, check_user_referrals
 )
 from bot.handlers.other import check_sub_channel, get_bot_info
-from bot.keyboards import main_menu, back, simple_buttons, profile_keyboard
+from bot.keyboards import main_menu, back, profile_keyboard, check_sub
 from bot.misc import EnvKeys
 from bot.i18n import localize
 
@@ -21,11 +20,6 @@ from bot.handlers.user.balance_and_payment import router as balance_and_payment_
 from bot.handlers.user.shop_and_goods import router as shop_and_goods_router
 
 router = Router()
-
-
-# FSM for user menu
-class UserStates(StatesGroup):
-    main_menu = State()
 
 
 # /start
@@ -70,10 +64,7 @@ async def start(message: Message, state: FSMContext):
         if channel_username:
             chat_member = await message.bot.get_chat_member(chat_id=f'@{channel_username}', user_id=user_id)
             if not await check_sub_channel(chat_member):
-                markup = simple_buttons([
-                    (localize("btn.channel"), f"https://t.me/{channel_username}"),
-                    (localize("btn.check_subscription"), "sub_channel_done"),
-                ], per_row=1)
+                markup = check_sub(channel_username)
                 await message.answer(localize("subscribe.prompt"), reply_markup=markup)
                 await message.delete()
                 return
@@ -84,7 +75,7 @@ async def start(message: Message, state: FSMContext):
     markup = main_menu(role=role_data, channel=channel_username, helper=EnvKeys.HELPER_URL)
     await message.answer(localize("menu.title"), reply_markup=markup)
     await message.delete()
-    await state.set_state(UserStates.main_menu)
+    await state.clear()
 
 
 # Back to menu
@@ -105,7 +96,7 @@ async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
 
     markup = main_menu(role=user.role_id, channel=channel_username, helper=EnvKeys.HELPER_URL)
     await call.message.edit_text(localize("menu.title"), reply_markup=markup)
-    await state.set_state(UserStates.main_menu)
+    await state.clear()
 
 
 # Rules
@@ -191,7 +182,7 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
             user = check_user(user_id)
             markup = main_menu(user.role_id, channel_username, helper)
             await call.message.edit_text(localize("menu.title"), reply_markup=markup)
-            await state.set_state(UserStates.main_menu)
+            await state.clear()
             return
 
     await call.answer(localize("errors.not_subscribed"))

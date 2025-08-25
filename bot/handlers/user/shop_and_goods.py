@@ -1,7 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
-from aiogram.filters.state import State, StatesGroup
 
 from bot.database.methods import (
     get_all_categories, get_all_items, select_bought_items, get_bought_item_info, get_item_info,
@@ -10,17 +9,9 @@ from bot.database.methods import (
 from bot.keyboards import paginated_keyboard, item_info, back
 from bot.i18n import localize
 from bot.misc import EnvKeys
+from bot.states import ShopStates
 
 router = Router()
-
-
-class ShopStates(StatesGroup):
-    """
-    FSM states for the shopping section (personal purchases list).
-    """
-    viewing_goods = State()
-    viewing_bought_items = State()
-    viewing_categories = State()
 
 
 # --- Open shop (categories)
