@@ -39,4 +39,4 @@ class EnvKeys(ABC):
     DB_DRIVER: Final = os.getenv("DB_DRIVER", "postgresql+psycopg2")
 
     # Database (for manual deploy)
-    DATABASE_URL: Final = "postgresql+psycopg2://postgres:12345@localhost:5432/shop"  # (setup if you deploy manually)
+    DATABASE_URL: Final = "postgresql+psycopg2://user:password@localhost:5432/name"  # (setup if you deploy manually)
