@@ -17,16 +17,16 @@ The application requires the following environment variables:
 <details>
 <summary><b>Payments</b></summary>
 
-| Variable                                                                                  | Description                                                                                                 |
-|-------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
-| [TELEGRAM_PROVIDER_TOKEN](https://core.telegram.org/bots/payments#getting-a-token)        | Provider's token for accepting payments                                                                     |
-| [CRYPTO_PAY_TOKEN](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7) | CryptoPay API token (initially disabled)                                                                    |
-| STARS_PER_VALUE                                                                           | the equivalent of stars per unit of currency (to disable this payment method, set 0)                        |
-| PAY_CURRENCY                                                                              | the currency for paying the invoice (for Crypto Bot and Telegram Pay) and the displayed currency in the bot |
-| REFERRAL_PERCENT                                                                          | percentage of the referral deposit (initially disabled)                                                     |
-| PAYMENT_TIME                                                                              | PAYMENT_TIME - time allotted for payment (CryptoPay) in seconds (initially 1800 sec)                        |
-| MIN_AMOUNT                                                                                | minimum amount for crediting (initially 20)                                                                 |
-| MAX_AMOUNT                                                                                | maximum amount for crediting (initially 10_000)                                                             |
+| Variable                                                                                  | Description                                                                                                                      |
+|-------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| [TELEGRAM_PROVIDER_TOKEN](https://core.telegram.org/bots/payments#getting-a-token)        | Provider's token for accepting payments                                                                                          |
+| [CRYPTO_PAY_TOKEN](https://help.send.tg/en/articles/10279948-crypto-pay-api#h_020215e6d7) | CryptoPay API token (initially disabled)                                                                                         |
+| STARS_PER_VALUE                                                                           | the equivalent of stars per unit of currency (to disable this payment method, set 0)                                             |
+| PAY_CURRENCY                                                                              | the currency for paying the invoice (for Crypto Bot and Telegram Pay) and the displayed currency in the bot (examples: RUB, USD) |
+| REFERRAL_PERCENT                                                                          | percentage of the referral deposit (initially disabled)                                                                          |
+| PAYMENT_TIME                                                                              | PAYMENT_TIME - time allotted for payment (CryptoPay) in seconds (initially 1800 sec)                                             |
+| MIN_AMOUNT                                                                                | minimum amount for crediting (initially 20)                                                                                      |
+| MAX_AMOUNT                                                                                | maximum amount for crediting (initially 10_000)                                                                                  |
 
 </details>
 
@@ -36,7 +36,7 @@ The application requires the following environment variables:
 | Variable    | Description                                                                                                                            |
 |-------------|----------------------------------------------------------------------------------------------------------------------------------------|
 | CHANNEL_URL | Telegram channel link. Notifications about assortment updates will occur there. (only works with public channels) (initially disabled) |
-| HELPER_URL  | telegram username for help (initially disabled)                                                                                        |
+| HELPER_ID   | Helper's ID in Telegram                                                                                                                |
 | RULES       | rules for using the bot (initially disabled)                                                                                           |
 
 </details>
@@ -73,10 +73,10 @@ The application requires the following environment variables:
 <summary><b>Database (for manual deploy)</b></summary>
 
 [Setup](https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls) [DATABASE_URL](../bot/misc/env.py) (supports:
-PostgreSQL, MySQL, sqlite3, etc)
+PostgreSQL - preferably, MySQL, sqlite3, etc)
 </details>
 
-## How to deploy with docker
+## How to deploy with [docker](https://www.docker.com/)
 
 1. Clone project
 2. Create a `.env` file in the root directory with all the environment variables listed above

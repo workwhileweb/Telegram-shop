@@ -101,7 +101,7 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
             crypto = CryptoPayAPI()
             invoice = await crypto.create_invoice(
                 amount=float(amount_dec),
-                currency="RUB",
+                currency=EnvKeys.PAY_CURRENCY,
                 accepted_assets="TON,USDT,BTC,ETH",
                 payload=str(call.from_user.id),
                 expires_in=EnvKeys.PAYMENT_TIME
@@ -329,6 +329,7 @@ async def successful_payment_handler(message: Message):
                     referral_id,
                     localize('payments.referral.bonus',
                              amount=referral_operation,
+                             currency=EnvKeys.PAY_CURRENCY,
                              name=message.from_user.first_name),
                     reply_markup=close()
                 )

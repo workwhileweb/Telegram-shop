@@ -72,7 +72,7 @@ async def start(message: Message, state: FSMContext):
         # Ignore channel errors (private channel, wrong link, etc.)
         pass
 
-    markup = main_menu(role=role_data, channel=channel_username, helper=EnvKeys.HELPER_URL)
+    markup = main_menu(role=role_data, channel=channel_username, helper=EnvKeys.HELPER_ID)
     await message.answer(localize("menu.title"), reply_markup=markup)
     await message.delete()
     await state.clear()
@@ -94,7 +94,7 @@ async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
                            if parsed.path else channel_url.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
                        ) or None
 
-    markup = main_menu(role=user.role_id, channel=channel_username, helper=EnvKeys.HELPER_URL)
+    markup = main_menu(role=user.role_id, channel=channel_username, helper=EnvKeys.HELPER_ID)
     await call.message.edit_text(localize("menu.title"), reply_markup=markup)
     await state.clear()
 
@@ -174,7 +174,7 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
                            parsed_url.path.lstrip('/')
                            if parsed_url.path else chat.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
                        ) or None
-    helper = EnvKeys.HELPER_URL
+    helper = EnvKeys.HELPER_ID
 
     if channel_username:
         chat_member = await call.bot.get_chat_member(chat_id='@' + channel_username, user_id=user_id)

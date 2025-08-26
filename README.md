@@ -10,7 +10,7 @@ telegram
 
 ![](assets/admin_pov.gif)
 
-### user pov:
+### user pov
 
 ![](assets/user_pov.gif)
 
@@ -20,11 +20,18 @@ telegram
 
 ### Menu
 
-the menu for the user looks like this (the administrator has an "admin panel" button in the menu):
+the menu for the user looks like this:
 
 ![](assets/menu_picture.png)
 
+The administrator has an "admin panel" button in the menu:
+
 ![](assets/menu_as_admin_picture.png)
+
+### Referral system
+The bot has a customizable referral system:
+
+![](assets/referral_system.png)
 
 ### Catalog
 
