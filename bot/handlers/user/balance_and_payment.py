@@ -126,7 +126,7 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
 
     elif call.data == "pay_stars":
         # Telegram Stars (XTR)
-        if int(EnvKeys.STARS_PER_VALUE) > 0:
+        if EnvKeys.STARS_PER_VALUE > 0:
             try:
                 await send_stars_invoice(
                     bot=call.message.bot,

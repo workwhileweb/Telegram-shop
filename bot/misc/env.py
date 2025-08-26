@@ -11,12 +11,12 @@ class EnvKeys(ABC):
     # Payments
     TELEGRAM_PROVIDER_TOKEN: Final = os.getenv("TELEGRAM_PROVIDER_TOKEN")
     CRYPTO_PAY_TOKEN: Final = os.getenv("CRYPTO_PAY_TOKEN")
-    STARS_PER_VALUE: Final = os.getenv("STARS_PER_VALUE", "0.91")
-    REFERRAL_PERCENT: Final = os.getenv("REFERRAL_PERCENT", 0)
+    STARS_PER_VALUE: Final = float(os.getenv("STARS_PER_VALUE", "0.91"))
+    REFERRAL_PERCENT: Final = int(os.getenv("REFERRAL_PERCENT", 0))
     PAY_CURRENCY: Final = os.getenv("PAY_CURRENCY", "RUB")
-    PAYMENT_TIME: Final = os.getenv("PAYMENT_TIME", 1800)
-    MIN_AMOUNT: Final = os.getenv("MIN_AMOUNT", 20)
-    MAX_AMOUNT: Final = os.getenv("MAX_AMOUNT", 10_000)
+    PAYMENT_TIME: Final = int(os.getenv("PAYMENT_TIME", 1800))
+    MIN_AMOUNT: Final = int(os.getenv("MIN_AMOUNT", 20))
+    MAX_AMOUNT: Final = int(os.getenv("MAX_AMOUNT", 10_000))
 
     # Links / UI
     CHANNEL_URL: Final = os.getenv("CHANNEL_URL")
@@ -39,4 +39,4 @@ class EnvKeys(ABC):
     DB_DRIVER: Final = os.getenv("DB_DRIVER", "postgresql+psycopg2")
 
     # Database (for manual deploy)
-    DATABASE_URL: Final = "postgresql+psycopg2://user:password@localhost:5432/name"  # (setup if you deploy manually)
+    DATABASE_URL: Final = "postgresql+psycopg2://postgres:12345@localhost:5432/shop"  # (setup if you deploy manually)
