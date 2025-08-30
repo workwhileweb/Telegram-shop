@@ -7,7 +7,10 @@ from bot.database.models import Permission
 from bot.database.methods import (
     check_user, select_user_operations, select_user_items,
     check_role_name_by_id, check_user_referrals, select_bought_items,
-    set_role, create_operation, update_balance, get_role_id_by_name
+    set_role, create_operation, update_balance, get_role_id_by_name,
+    get_user_referrals_list, get_referral_earnings_from_user,
+    get_all_referral_earnings, get_referral_earnings_stats,
+    get_one_referral_earning
 )
 from bot.keyboards import back, close, paginated_keyboard, simple_buttons
 from bot.logger_mesh import audit_logger
@@ -35,11 +38,11 @@ async def user_callback_handler(call: CallbackQuery, state: FSMContext):
     await state.set_state(UserMgmtStates.waiting_user_id_for_check)
 
 
-# --- Validate entered user id
+# --- Validate entered user id and show profile directly
 @router.message(UserMgmtStates.waiting_user_id_for_check, F.text)
 async def check_user_data(message: Message, state: FSMContext):
     """
-    Validates ID and shows a confirmation to open profile.
+    Validates ID and shows user profile directly.
     """
     user_id_text = message.text.strip()
     if not user_id_text.isdigit():
@@ -49,7 +52,8 @@ async def check_user_data(message: Message, state: FSMContext):
         )
         return
 
-    user = check_user(int(user_id_text))
+    target_id = int(user_id_text)
+    user = check_user(target_id)
     if not user:
         await message.answer(
             localize('admin.users.profile_unavailable'),
@@ -57,15 +61,74 @@ async def check_user_data(message: Message, state: FSMContext):
         )
         return
 
-    # Buttons: view profile or go back
-    markup = simple_buttons([
-        (localize('btn.admin.view_profile'), f"check-user_{user.telegram_id}"),
-        (localize('btn.back'), "user_management")
-    ], per_row=1)
+    # Get user profile data
+    user_info = await message.bot.get_chat(target_id)
+    operations = select_user_operations(target_id)
+    overall_balance = sum(operations) if operations else 0
+    items_count = select_user_items(target_id)
+    role = check_role_name_by_id(user.role_id)
+    referrals = check_user_referrals(user.telegram_id)
+
+    # Get referral earnings stats for the user
+    earnings_stats = get_referral_earnings_stats(target_id)
+    has_referrals = referrals > 0
+    has_earnings = earnings_stats['total_earnings_count'] > 0
+
+    # Action buttons
+    actions: list[tuple[str, str]] = []
+    role_name = role  # 'USER' | 'ADMIN' | 'OWNER'
+
+    if role_name == 'OWNER':
+        # Do nothing: owner's role is immutable for safety
+        pass
+    elif role_name == 'ADMIN':
+        actions.append((localize('btn.admin.demote'), f"remove-admin_{target_id}"))
+    else:  # USER
+        actions.append((localize('btn.admin.promote'), f"set-admin_{target_id}"))
+
+    actions.append((localize('btn.admin.replenish_user'), f"fill-user-balance_{target_id}"))
+
+    if items_count:
+        actions.append((localize('btn.purchased'), f"user-items_{target_id}"))
+
+    # Add referral-related buttons
+    if has_referrals:
+        actions.append((localize('admin.users.btn.view_referrals'), f"admin-view-referrals_{target_id}"))
+
+    if has_earnings:
+        actions.append((localize('admin.users.btn.view_earnings'), f"admin-view-earnings_{target_id}"))
+
+    actions.append((localize('btn.back'), "user_management"))
+
+    markup = simple_buttons(actions, per_row=1)
+
+    lines = [
+        localize('profile.caption', name=user_info.first_name, id=target_id),
+        '',
+        localize('profile.id', id=target_id),
+        localize('profile.balance', amount=user.balance, currency=EnvKeys.PAY_CURRENCY),
+        localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY),
+        localize('profile.purchased_count', count=items_count),
+        '',
+        localize('admin.users.referrals', count=referrals),
+        localize('admin.users.role', role=role),
+        localize('profile.registration_date', dt=user.registration_date.strftime("%d.%m.%Y %H:%M")),
+    ]
+
+    # Add referral earnings stats if available
+    if has_earnings:
+        lines.append('')
+        lines.append(localize('referrals.stats.template',
+                              active_count=earnings_stats['active_referrals_count'],
+                              total_earned=int(earnings_stats['total_amount']),
+                              total_original=int(earnings_stats['total_original_amount']),
+                              earnings_count=earnings_stats['total_earnings_count'],
+                              currency=EnvKeys.PAY_CURRENCY))
+
     await message.answer(
-        localize('admin.users.confirm_view', id=user.telegram_id),
-        reply_markup=markup,
-        parse_mode='HTML'
+        '\n'.join(lines),
+        parse_mode='HTML',
+        reply_markup=markup
     )
     await state.clear()
 
@@ -96,12 +159,17 @@ async def user_profile_view(call: CallbackQuery):
     role = check_role_name_by_id(user.role_id)
     referrals = check_user_referrals(user.telegram_id)
 
+    # Get referral earnings stats for the user
+    earnings_stats = get_referral_earnings_stats(target_id)
+    has_referrals = referrals > 0
+    has_earnings = earnings_stats['total_earnings_count'] > 0
+
     # Action buttons
     actions: list[tuple[str, str]] = []
     role_name = role  # 'USER' | 'ADMIN' | 'OWNER'
 
     if role_name == 'OWNER':
-        # Do nothing: owner’s role is immutable for safety
+        # Do nothing: owner's role is immutable for safety
         pass
     elif role_name == 'ADMIN':
         actions.append((localize('btn.admin.demote'), f"remove-admin_{target_id}"))
@@ -109,8 +177,17 @@ async def user_profile_view(call: CallbackQuery):
         actions.append((localize('btn.admin.promote'), f"set-admin_{target_id}"))
 
     actions.append((localize('btn.admin.replenish_user'), f"fill-user-balance_{target_id}"))
+
     if items_count:
         actions.append((localize('btn.purchased'), f"user-items_{target_id}"))
+
+    # Add referral-related buttons
+    if has_referrals:
+        actions.append((localize('admin.users.btn.view_referrals'), f"admin-view-referrals_{target_id}"))
+
+    if has_earnings:
+        actions.append((localize('admin.users.btn.view_earnings'), f"admin-view-earnings_{target_id}"))
+
     actions.append((localize('btn.back'), "user_management"))
 
     markup = simple_buttons(actions, per_row=1)
@@ -125,12 +202,265 @@ async def user_profile_view(call: CallbackQuery):
         '',
         localize('admin.users.referrals', count=referrals),
         localize('admin.users.role', role=role),
-        localize('profile.registration_date', dt=user.registration_date),
+        localize('profile.registration_date', dt=user.registration_date.strftime("%d.%m.%Y %H:%M")),
     ]
+
+    # Add referral earnings stats if available
+    if has_earnings:
+        lines.append('')
+        lines.append(localize('referrals.stats.template',
+                              active_count=earnings_stats['active_referrals_count'],
+                              total_earned=int(earnings_stats['total_amount']),
+                              total_original=int(earnings_stats['total_original_amount']),
+                              earnings_count=earnings_stats['total_earnings_count'],
+                              currency=EnvKeys.PAY_CURRENCY))
+
     await call.message.edit_text(
         '\n'.join(lines),
         parse_mode='HTML',
         reply_markup=markup
+    )
+
+
+# --- View user's referrals (Admin)
+@router.callback_query(F.data.startswith('admin-view-referrals_'), HasPermissionFilter(Permission.USERS_MANAGE))
+async def admin_view_referrals_handler(call: CallbackQuery):
+    """
+    Show a list of all referrals for selected user (admin view).
+    """
+    try:
+        user_id = int(call.data.split('_')[-1])
+    except (ValueError, IndexError):
+        await call.answer(localize('errors.invalid_data'))
+        return
+
+    referrals = get_user_referrals_list(user_id)
+
+    if not referrals:
+        await call.message.edit_text(
+            localize("referrals.list.empty"),
+            reply_markup=back(f"check-user_{user_id}")
+        )
+        return
+
+    markup = paginated_keyboard(
+        items=referrals,
+        item_text=lambda referral_data: localize("referrals.item.format",
+                                                 telegram_id=referral_data['telegram_id'],
+                                                 total_earned=int(referral_data['total_earned']),
+                                                 currency=EnvKeys.PAY_CURRENCY),
+        item_callback=lambda referral_data: f"admin-ref-earnings_{user_id}_{referral_data['telegram_id']}",
+        page=0,
+        per_page=10,
+        back_cb=f"check-user_{user_id}",
+        nav_cb_prefix=f"admin-refs-page_{user_id}_"
+    )
+
+    user_info = await call.message.bot.get_chat(user_id)
+    await call.message.edit_text(
+        localize(
+            "referrals.list.title") + f"\n(<a href='tg://user?id={user_id}'>{user_info.first_name}</a> - {user_id})",
+        reply_markup=markup
+    )
+
+
+# --- Pagination for admin referral list
+@router.callback_query(F.data.startswith("admin-refs-page_"), HasPermissionFilter(Permission.USERS_MANAGE))
+async def admin_referrals_pagination_handler(call: CallbackQuery):
+    """
+    Pagination processing for the referral list (admin view).
+    """
+    try:
+        parts = call.data.split("_")
+        user_id = int(parts[1])
+        page = int(parts[2])
+    except (ValueError, IndexError):
+        await call.answer(localize("errors.pagination_invalid"))
+        return
+
+    referrals = get_user_referrals_list(user_id)
+
+    if not referrals:
+        await call.answer(localize("referrals.list.empty"))
+        return
+
+    markup = paginated_keyboard(
+        items=referrals,
+        item_text=lambda referral_data: localize("referrals.item.format",
+                                                 telegram_id=referral_data['telegram_id'],
+                                                 total_earned=int(referral_data['total_earned']),
+                                                 currency=EnvKeys.PAY_CURRENCY),
+        item_callback=lambda referral_data: f"admin-ref-earnings_{user_id}_{referral_data['telegram_id']}",
+        page=page,
+        per_page=10,
+        back_cb=f"check-user_{user_id}",
+        nav_cb_prefix=f"admin-refs-page_{user_id}_"
+    )
+
+    user_info = await call.message.bot.get_chat(user_id)
+    await call.message.edit_text(
+        localize(
+            "referrals.list.title") + f"\n(<a href='tg://user?id={user_id}'>{user_info.first_name}</a> - {user_id})",
+        reply_markup=markup
+    )
+
+
+# --- View earnings from specific referral (Admin)
+@router.callback_query(F.data.startswith("admin-ref-earnings_"), HasPermissionFilter(Permission.USERS_MANAGE))
+async def admin_referral_earnings_handler(call: CallbackQuery):
+    """
+    Show all earnings from a specific referral for selected user (admin view).
+    """
+    try:
+        parts = call.data.split("_")
+        user_id = int(parts[1])
+        referral_id = int(parts[2])
+    except (ValueError, IndexError):
+        await call.answer(localize("errors.invalid_data"))
+        return
+
+    earnings = get_referral_earnings_from_user(user_id, referral_id)
+    referral_info = await call.message.bot.get_chat(referral_id)
+
+    if not earnings:
+        await call.message.edit_text(
+            localize("referral.earnings.empty", id=referral_id, name=referral_info.first_name),
+            reply_markup=back(f"admin-view-referrals_{user_id}")
+        )
+        return
+
+    markup = paginated_keyboard(
+        items=earnings,
+        item_text=lambda earning: localize("referral.earning.format",
+                                           amount=int(earning.amount),
+                                           currency=EnvKeys.PAY_CURRENCY,
+                                           date=earning.created_at.strftime("%d.%m.%Y %H:%M"),
+                                           original_amount=int(earning.original_amount)),
+        item_callback=lambda earning: f"admin-earning-detail:{earning.id}:admin-ref-earnings_{user_id}_{referral_id}",
+        page=0,
+        per_page=10,
+        back_cb=f"admin-view-referrals_{user_id}",
+        nav_cb_prefix=f"admin-ref-earn_{user_id}_{referral_id}_page_"
+    )
+
+    title_text = localize("referral.earnings.title", telegram_id=referral_id, name=referral_info.first_name)
+    await call.message.edit_text(title_text, reply_markup=markup)
+
+
+# --- View all referral earnings for user (Admin)
+@router.callback_query(F.data.startswith('admin-view-earnings_'), HasPermissionFilter(Permission.USERS_MANAGE))
+async def admin_view_all_earnings_handler(call: CallbackQuery):
+    """
+    Show all referral earnings for selected user (admin view).
+    """
+    try:
+        user_id = int(call.data.split('_')[-1])
+    except (ValueError, IndexError):
+        await call.answer(localize('errors.invalid_data'))
+        return
+
+    earnings = get_all_referral_earnings(user_id)
+
+    if not earnings:
+        await call.message.edit_text(
+            localize("all.earnings.empty"),
+            reply_markup=back(f"check-user_{user_id}")
+        )
+        return
+
+    markup = paginated_keyboard(
+        items=earnings,
+        item_text=lambda earning: localize("all.earning.format",
+                                           amount=int(earning.amount),
+                                           currency=EnvKeys.PAY_CURRENCY,
+                                           referral_id=earning.referral_id,
+                                           date=earning.created_at.strftime("%d.%m.%Y %H:%M")),
+        item_callback=lambda earning: f"admin-earning-detail:{earning.id}:admin-view-earnings_{user_id}",
+        page=0,
+        per_page=10,
+        back_cb=f"check-user_{user_id}",
+        nav_cb_prefix=f"admin-all-earn_{user_id}_page_"
+    )
+
+    user_info = await call.message.bot.get_chat(user_id)
+    await call.message.edit_text(
+        localize("all.earnings.title") + f"\n(<a href='tg://user?id={user_id}'>{user_info.first_name}</a> - {user_id})",
+        reply_markup=markup
+    )
+
+
+# --- Pagination for all earnings (Admin)
+@router.callback_query(F.data.startswith("admin-all-earn_"), HasPermissionFilter(Permission.USERS_MANAGE))
+async def admin_all_earnings_pagination_handler(call: CallbackQuery):
+    """
+    Pagination processing for all referral earnings (admin view).
+    """
+    try:
+        parts = call.data.split("_")
+        user_id = int(parts[1])
+        page = int(parts[3])
+    except (ValueError, IndexError):
+        await call.answer(localize("errors.pagination_invalid"))
+        return
+
+    earnings = get_all_referral_earnings(user_id)
+
+    if not earnings:
+        await call.answer(localize("all.earnings.empty"))
+        return
+
+    markup = paginated_keyboard(
+        items=earnings,
+        item_text=lambda earning: localize("all.earning.format",
+                                           amount=int(earning.amount),
+                                           currency=EnvKeys.PAY_CURRENCY,
+                                           referral_id=earning.referral_id,
+                                           date=earning.created_at.strftime("%d.%m.%Y %H:%M")),
+        item_callback=lambda earning: f"admin-earning-detail:{earning.id}:admin-all-earn_{user_id}_page_{page}",
+        page=page,
+        per_page=10,
+        back_cb=f"check-user_{user_id}",
+        nav_cb_prefix=f"admin-all-earn_{user_id}_page_"
+    )
+
+    user_info = await call.message.bot.get_chat(user_id)
+    await call.message.edit_text(
+        localize("all.earnings.title") + f"\n(<a href='tg://user?id={user_id}'>{user_info.first_name}</a> - {user_id})",
+        reply_markup=markup
+    )
+
+
+# --- View earning detail (Admin)
+@router.callback_query(F.data.startswith("admin-earning-detail:"), HasPermissionFilter(Permission.USERS_MANAGE))
+async def admin_earning_detail_handler(call: CallbackQuery):
+    """
+    Show detailed information about specific earning (admin view).
+    """
+    try:
+        parts = call.data.split(':', 2)
+        earning_id = int(parts[1])
+        back_data = parts[2]
+    except (ValueError, IndexError):
+        await call.answer(localize('errors.invalid_data'))
+        return
+
+    earning_info = get_one_referral_earning(earning_id)
+    if not earning_info:
+        await call.answer(localize('errors.invalid_data'))
+        return
+
+    referral_info = await call.message.bot.get_chat(earning_info['referral_id'])
+
+    await call.message.edit_text(
+        localize('referral.item.info',
+                 id=earning_id,
+                 telegram_id=earning_info['referral_id'],
+                 name=referral_info.first_name,
+                 amount=earning_info['amount'],
+                 currency=EnvKeys.PAY_CURRENCY,
+                 date=earning_info['created_at'].strftime("%d.%m.%Y %H:%M"),
+                 original_amount=earning_info['original_amount']),
+        reply_markup=back(back_data)
     )
 
 
