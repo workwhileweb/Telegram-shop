@@ -72,8 +72,7 @@ The application requires the following environment variables:
 <details>
 <summary><b>Database (for manual deploy)</b></summary>
 
-[Setup](https://docs.sqlalchemy.org/en/20/core/engines.html#database-urls) [DATABASE_URL](../bot/misc/env.py) (supports:
-PostgreSQL - preferably, MySQL, sqlite3, etc)
+[Setup](https://docs.sqlalchemy.org/en/20/core/engines.html#postgresql) [DATABASE_URL](../bot/misc/env.py)
 </details>
 
 ## How to deploy with [docker](https://www.docker.com/)
@@ -100,28 +99,20 @@ PostgreSQL - preferably, MySQL, sqlite3, etc)
     pip install --upgrade pip
     pip install -r requirements.txt
     ```
-4. [Setup environment variables listed above](https://stackoverflow.com/questions/42708389/how-to-set-environment-variables-in-pycharm)
-
-5. Run run.py
+4. [Setup environment variables](https://stackoverflow.com/questions/42708389/how-to-set-environment-variables-in-pycharm)
+   listed above
+5. Set the latest migration:
+   ```
+   alembic upgrade head
+   ```
+6. Run run.py
 
 ### P.S.
 
 1. Add the bot to the channel you provided and make it an admin.
-2. To apply latest migration, use:
-    <details>
-    <summary><b>Docker</b></summary>
-
+2. To apply the latest migration via Docker, use:
     ```
     docker compose run --rm bot alembic upgrade head
     ```
-    </details>
-
-    <details>
-    <summary><b>Manual deploy</b></summary>
-
-    ```
-    alembic upgrade head
-    ```
-    </details>
 
 ### [BACK](../README.md)

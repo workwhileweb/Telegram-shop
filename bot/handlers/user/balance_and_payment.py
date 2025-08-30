@@ -11,7 +11,7 @@ from bot.database.methods import (
     get_user_balance, get_item_info, get_item_value, buy_item, add_bought_item,
     buy_item_for_balance,
     get_user_referral, update_balance, create_operation, mark_payment_succeeded, create_pending_payment,
-    ensure_payment_succeeded
+    ensure_payment_succeeded, create_referral_earning
 )
 from bot.keyboards import back, payment_menu, close, get_payment_choice
 from bot.logger_mesh import audit_logger
@@ -198,15 +198,25 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
                     referral_operation = int(
                         Decimal(EnvKeys.REFERRAL_PERCENT) / Decimal(100) * Decimal(balance_amount)
                     )
-                    update_balance(referral_id, referral_operation)
-                    await call.bot.send_message(
-                        referral_id,
-                        localize('payments.referral.bonus',
-                                 amount=referral_operation,
-                                 name=call.from_user.first_name,
-                                 currency=EnvKeys.PAY_CURRENCY),
-                        reply_markup=close()
-                    )
+                    if referral_operation > 0:
+                        update_balance(referral_id, referral_operation)
+
+                        create_referral_earning(
+                            referrer_id=referral_id,
+                            referral_id=user_id,
+                            amount=referral_operation,
+                            original_amount=balance_amount
+                        )
+
+                        await call.bot.send_message(
+                            referral_id,
+                            localize('payments.referral.bonus',
+                                     amount=referral_operation,
+                                     name=call.from_user.first_name,
+                                     id=call.from_user.id,
+                                     currency=EnvKeys.PAY_CURRENCY),
+                            reply_markup=close()
+                        )
                 except Exception:
                     pass
 
@@ -325,12 +335,21 @@ async def successful_payment_handler(message: Message):
             )
             if referral_operation > 0:
                 update_balance(referral_id, referral_operation)
+
+                create_referral_earning(
+                    referrer_id=referral_id,
+                    referral_id=user_id,
+                    amount=referral_operation,
+                    original_amount=amount
+                )
+
                 await message.bot.send_message(
                     referral_id,
                     localize('payments.referral.bonus',
                              amount=referral_operation,
                              currency=EnvKeys.PAY_CURRENCY,
-                             name=message.from_user.first_name),
+                             name=message.from_user.first_name,
+                             id=message.from_user.id),
                     reply_markup=close()
                 )
         except Exception:

@@ -84,6 +84,17 @@ class User(Database.BASE):
     user_operations = relationship("Operations", back_populates="user_telegram_id")
     user_goods = relationship("BoughtGoods", back_populates="user_telegram_id")
 
+    referral_earnings_received = relationship(
+        "ReferralEarnings",
+        foreign_keys="ReferralEarnings.referrer_id",
+        back_populates="referrer"
+    )
+    referral_earnings_generated = relationship(
+        "ReferralEarnings",
+        foreign_keys="ReferralEarnings.referral_id",
+        back_populates="referral"
+    )
+
     def __init__(self, telegram_id: int, registration_date: datetime.datetime, balance=0, referral_id=None,
                  role_id: int = 1, **kw: Any):
         super().__init__(**kw)
@@ -194,6 +205,40 @@ class Payments(Database.BASE):
     __table_args__ = (
         UniqueConstraint('provider', 'external_id', name='uq_payment_provider_ext'),
     )
+
+
+class ReferralEarnings(Database.BASE):
+    __tablename__ = 'referral_earnings'
+
+    id = Column(Integer, primary_key=True)
+    referrer_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), nullable=False, index=True)
+    referral_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), nullable=False, index=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    original_amount = Column(Numeric(12, 2), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    referrer = relationship(
+        "User",
+        foreign_keys="ReferralEarnings.referrer_id",
+        back_populates="referral_earnings_received"
+    )
+    referral = relationship(
+        "User",
+        foreign_keys="ReferralEarnings.referral_id",
+        back_populates="referral_earnings_generated"
+    )
+
+    __table_args__ = (
+        Index('ix_referral_earnings_referrer_created', 'referrer_id', 'created_at'),
+        Index('ix_referral_earnings_referral_created', 'referral_id', 'created_at'),
+    )
+
+    def __init__(self, referrer_id: int, referral_id: int, amount, original_amount, **kw: Any):
+        super().__init__(**kw)
+        self.referrer_id = referrer_id
+        self.referral_id = referral_id
+        self.amount = amount
+        self.original_amount = original_amount
 
 
 def register_models():

@@ -9,6 +9,7 @@ from typing import Union, Sequence
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision: str = "8xk049bo647i"
@@ -18,6 +19,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
+    bind = op.get_bind()
+    inspector = inspect(bind)
+    existing_tables = inspector.get_table_names()
+
+    if 'payments' in existing_tables:
+        print("Table 'payments' already exists, skipping creation.")
+        return
+
     op.create_table(
         "payments",
         sa.Column("id", sa.Integer, primary_key=True),

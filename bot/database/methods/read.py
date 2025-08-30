@@ -1,11 +1,11 @@
 import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List, Dict
 
-from sqlalchemy import func, exists
+from sqlalchemy import func, exists, desc
 
 from bot.database.models import Database, User, ItemValues, Goods, Categories, Role, BoughtGoods, \
-    Operations
+    Operations, ReferralEarnings
 
 
 def _day_window(date_str: str) -> tuple[datetime.datetime, datetime.datetime]:
@@ -284,3 +284,77 @@ def get_user_referral(user_id: int) -> Optional[int]:
     with Database().session() as s:
         result = s.query(User.referral_id).filter(User.telegram_id == user_id).first()
         return result[0] if result else None
+
+
+def get_user_referrals_list(user_id: int) -> List[Dict]:
+    """
+    Get a list of all user referrals with their data.
+    Returns a list of dictionaries with information about each referral.
+    """
+    with Database().session() as s:
+        referrals = s.query(User).filter(User.referral_id == user_id).all()
+        result = []
+        for ref in referrals:
+            # Get the total amount of all accruals from this referral
+            total_earned = s.query(func.sum(ReferralEarnings.amount)).filter(
+                ReferralEarnings.referrer_id == user_id,
+                ReferralEarnings.referral_id == ref.telegram_id
+            ).scalar() or Decimal(0)
+
+            result.append({
+                'telegram_id': ref.telegram_id,
+                'registration_date': ref.registration_date,
+                'total_earned': total_earned
+            })
+
+        return sorted(result, key=lambda x: x['total_earned'], reverse=True)
+
+
+def get_referral_earnings_from_user(referrer_id: int, referral_id: int) -> List[ReferralEarnings]:
+    """Get all accruals from a specific referral."""
+    with Database().session() as s:
+        return s.query(ReferralEarnings).filter(
+            ReferralEarnings.referrer_id == referrer_id,
+            ReferralEarnings.referral_id == referral_id
+        ).order_by(desc(ReferralEarnings.created_at)).all()
+
+
+def get_all_referral_earnings(referrer_id: int) -> List[ReferralEarnings]:
+    """
+    Get all user referral charges.
+    """
+    with Database().session() as s:
+        return s.query(ReferralEarnings).filter(
+            ReferralEarnings.referrer_id == referrer_id
+        ).order_by(desc(ReferralEarnings.created_at)).all()
+
+
+def get_referral_earnings_stats(referrer_id: int) -> Dict:
+    """
+    Get statistics on user referral charges.
+    """
+    with Database().session() as s:
+        stats = s.query(
+            func.count(ReferralEarnings.id).label('total_earnings_count'),
+            func.sum(ReferralEarnings.amount).label('total_amount'),
+            func.sum(ReferralEarnings.original_amount).label('total_original_amount'),
+            func.count(func.distinct(ReferralEarnings.referral_id)).label('active_referrals_count')
+        ).filter(
+            ReferralEarnings.referrer_id == referrer_id
+        ).first()
+
+        return {
+            'total_earnings_count': stats.total_earnings_count or 0,
+            'total_amount': stats.total_amount or Decimal(0),
+            'total_original_amount': stats.total_original_amount or Decimal(0),
+            'active_referrals_count': stats.active_referrals_count or 0
+        }
+
+
+def get_one_referral_earning(earning_id: int) -> dict | None:
+    """
+    Get one user referral earning info.
+    """
+    with Database().session() as s:
+        result = s.query(ReferralEarnings).filter(ReferralEarnings.id == earning_id).first()
+        return result.__dict__ if result else None

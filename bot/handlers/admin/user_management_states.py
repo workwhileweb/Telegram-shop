@@ -116,7 +116,7 @@ async def user_profile_view(call: CallbackQuery):
     markup = simple_buttons(actions, per_row=1)
 
     lines = [
-        localize('profile.caption', name=user_info.first_name),
+        localize('profile.caption', name=user_info.first_name, id=target_id),
         '',
         localize('profile.id', id=target_id),
         localize('profile.balance', amount=user.balance, currency=EnvKeys.PAY_CURRENCY),

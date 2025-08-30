@@ -1,4 +1,4 @@
-"""empty message
+"""unfinished_operations drop
 
 Revision ID: c720febc8cd2
 Revises: 3f9d1b7a4a6c

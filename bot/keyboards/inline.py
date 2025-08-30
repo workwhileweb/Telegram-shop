@@ -175,3 +175,20 @@ def check_sub(channel_username: str) -> InlineKeyboardMarkup:
     kb.button(text=localize("btn.check_subscription"), callback_data="sub_channel_done")
     kb.adjust(1)
     return kb.as_markup()
+
+
+def referral_system_keyboard(has_referrals: bool = False, has_earnings: bool = False) -> InlineKeyboardMarkup:
+    """
+    Referral system keyboard with additional buttons.
+    """
+    kb = InlineKeyboardBuilder()
+
+    if has_referrals:
+        kb.button(text=localize("btn.view_referrals"), callback_data="view_referrals")
+
+    if has_earnings:
+        kb.button(text=localize("btn.view_earnings"), callback_data="view_all_earnings")
+
+    kb.button(text=localize("btn.back"), callback_data="profile")
+    kb.adjust(1)
+    return kb.as_markup()

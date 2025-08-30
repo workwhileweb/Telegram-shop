@@ -190,7 +190,7 @@ async def show_user_info(call: CallbackQuery):
     referrals = check_user_referrals(user.telegram_id)
 
     text = (
-        f"{localize('profile.caption', name=user_info.first_name)}\n\n"
+        f"{localize('profile.caption', name=user_info.first_name, id=user_id)}\n\n"
         f"{localize('profile.id', id=user_id)}\n"
         f"{localize('profile.balance', amount=user.balance, currency=EnvKeys.PAY_CURRENCY)}\n"
         f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY)}\n"

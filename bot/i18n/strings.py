@@ -31,7 +31,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # === Titles / Generic Texts ===
         "menu.title": "⛩️ Основное меню",
-        "profile.caption": "👤 <b>Профиль</b> — {name}",
+        "profile.caption": "👤 <b>Профиль</b> — <a href='tg://user?id={id}'>{name}</a>",
         "rules.not_set": "❌ Правила не были добавлены",
 
         # === Subscription Flow ===
@@ -59,6 +59,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📔 Реферальная система позволит Вам заработать деньги без всяких вложений. "
             "Необходимо всего лишь распространять свою реферальную ссылку и Вы будете получать "
             "{percent}% от суммы пополнений Ваших рефералов на Ваш баланс бота."
+        ),
+        "btn.view_referrals": "👥 Мои рефералы",
+        "btn.view_earnings": "💰 Мои поступления",
+        "btn.back_to_referral": "⬅️ К реферальной системе",
+
+        "referrals.list.title": "👥 Ваши рефералы:",
+        "referrals.list.empty": "У вас пока нет активных рефералов",
+        "referrals.item.format": "ID: {telegram_id} | Принёс: {total_earned} {currency}",
+
+        "referral.earnings.title": "💰 Поступления от реферала <code>{telegram_id}</code> (<a href='tg://user?id={telegram_id}'>{name}</a>):",
+        "referral.earnings.empty": "От данного реферала <code>{id}</code> (<a href='tg://user?id={id}'>{name}</a>) пока не было поступлений",
+        "referral.earning.format": "{amount} {currency} | {date} | (с {original_amount} {currency})",
+        "referral.item.info": ("💰 Поступление номер: <code>{id}</code>\n"
+                               "👤 Реферал: <code>{telegram_id}</code> (<a href='tg://user?id={telegram_id}'>{name}</a>)\n"
+                               "🔢 Количество: {amount} {currency}\n"
+                               "🕘 Дата: <code>{date}</code>\n"
+                               "💵 С пополнения на {original_amount} {currency}"),
+
+        "all.earnings.title": "💰 Все ваши реферальные поступления:",
+        "all.earnings.empty": "У вас пока нет реферальных поступлений",
+        "all.earning.format": "{amount} {currency} от ID:{referral_id} | {date}",
+
+        "referrals.stats.template": (
+            "📊 Статистика реферальной системы:\n\n"
+            "👥 Активных рефералов: {active_count}\n"
+            "💰 Всего заработано: {total_earned} {currency}\n"
+            "📈 Общая сумма пополнений рефералов: {total_original} {currency}\n"
+            "🔢 Количество начислений: {earnings_count}"
         ),
 
         # === Admin: Main Menu ===
@@ -240,7 +268,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "payments.topped_with_suffix": "✅ Баланс пополнен на {amount} {currency} ({suffix})",
         "payments.success_suffix.stars": "Telegram Stars",
         "payments.success_suffix.tg": "Telegram Payments",
-        "payments.referral.bonus": "✅ Вы получили {amount} {currency} от вашего реферала {name}",
+        "payments.referral.bonus": "✅ Вы получили {amount} {currency} от вашего реферала <a href='tg://user?id={id}'>{name}</a>",
         "payments.invoice.title.topup": "Пополнение баланса",
         "payments.invoice.desc.topup.stars": "Пополнение на {amount} {currency} через Telegram Stars",
         "payments.invoice.desc.topup.fiat": "Оплата через Telegram Payments (карта)",
@@ -314,7 +342,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
         # === Titles / Generic Texts ===
         "menu.title": "⛩️ Main menu",
-        "profile.caption": "👤 <b>Profile</b> — {name}",
+        "profile.caption": "👤 <b>Profile</b> — <a href='tg://user?id={id}'>{name}</a>",
         "rules.not_set": "❌ Rules have not been added",
 
         # === Profile ===
@@ -342,6 +370,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📔 The referral system lets you earn without any investment. "
             "Share your personal link and you will receive {percent}% of your referrals’ "
             "top-ups to your bot balance."
+        ),
+        "btn.view_referrals": "👥 My referrals",
+        "btn.view_earnings": "💰 My earnings",
+        "btn.back_to_referral": "⬅️ Back to referral system",
+
+        "referrals.list.title": "👥 Your referrals:",
+        "referrals.list.empty": "You don't have any active referrals yet",
+        "referrals.item.format": "ID: {telegram_id} | Earned: {total_earned} {currency}",
+
+        "referral.earnings.title": "💰 Earnings from referral <code>{telegram_id}</code> (<a href='tg://user?id={telegram_id}'>{name}</a>):",
+        "referral.earnings.empty": "No earnings from this referral <code>{id}</code> (<a href='tg://user?id={id}'>{name}</a>) yet",
+        "referral.earning.format": "{amount} {currency} | {date} | (from {original_amount} {currency})",
+        "referral.item.info": ("💰 Earning number: <code>{id}</code>\n"
+                               "👤 Referral: <code>{telegram_id}</code> (<a href='tg://user?id={telegram_id}'>{name}</a>)\n"
+                               "🔢 Amount: {amount} {currency}\n"
+                               "🕘 Date: <code>{date}</code>\n"
+                               "💵 From a deposit to {original_amount} {currency}"),
+
+        "all.earnings.title": "💰 All your referral earnings:",
+        "all.earnings.empty": "You have no referral earnings yet",
+        "all.earning.format": "{amount} {currency} from ID:{referral_id} | {date}",
+
+        "referrals.stats.template": (
+            "📊 Referral system statistics:\n\n"
+            "👥 Active referrals: {active_count}\n"
+            "💰 Total earned: {total_earned} {currency}\n"
+            "📈 Total referrals top-ups: {total_original} {currency}\n"
+            "🔢 Number of earnings: {earnings_count}"
         ),
 
         # === Admin: Main Menu ===
@@ -523,7 +579,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "payments.topped_with_suffix": "✅ Balance topped up by {amount} {currency} ({suffix})",
         "payments.success_suffix.stars": "Telegram Stars",
         "payments.success_suffix.tg": "Telegram Payments",
-        "payments.referral.bonus": "✅ You received {amount} {currency} from your referral {name}",
+        "payments.referral.bonus": "✅ You received {amount} {currency} from your referral <a href='tg://user?id={id}'>{name}</a>",
         "payments.invoice.title.topup": "Balance top-up",
         "payments.invoice.desc.topup.stars": "Top-up {amount} {currency} via Telegram Stars",
         "payments.invoice.desc.topup.fiat": "Pay via Telegram Payments (card)",

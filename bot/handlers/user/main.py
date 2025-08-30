@@ -8,9 +8,9 @@ import datetime
 
 from bot.database.methods import (
     select_max_role_id, create_user, check_role, check_user,
-    select_user_operations, select_user_items, check_user_referrals
+    select_user_operations, select_user_items
 )
-from bot.handlers.other import check_sub_channel, get_bot_info
+from bot.handlers.other import check_sub_channel
 from bot.keyboards import main_menu, back, profile_keyboard, check_sub
 from bot.misc import EnvKeys
 from bot.i18n import localize
@@ -18,6 +18,7 @@ from bot.i18n import localize
 # Importing child routers
 from bot.handlers.user.balance_and_payment import router as balance_and_payment_router
 from bot.handlers.user.shop_and_goods import router as shop_and_goods_router
+from bot.handlers.user.referral_system import router as referral_system_router
 
 router = Router()
 
@@ -130,34 +131,13 @@ async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
 
     markup = profile_keyboard(referral, items)
     text = (
-        f"{localize('profile.caption', name=tg_user.first_name)}\n"
+        f"{localize('profile.caption', name=tg_user.first_name, id=user_id)}\n"
         f"{localize('profile.id', id=user_id)}\n"
         f"{localize('profile.balance', amount=balance, currency=EnvKeys.PAY_CURRENCY)}\n"
         f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY)}\n"
         f"{localize('profile.purchased_count', count=items)}"
     )
     await call.message.edit_text(text, reply_markup=markup, parse_mode='HTML')
-    await state.clear()
-
-
-# Referral system
-@router.callback_query(F.data == "referral_system")
-async def referral_callback_handler(call: CallbackQuery, state: FSMContext):
-    """
-    Show referral info and personal invite link.
-    """
-    user_id = call.from_user.id
-    referrals = check_user_referrals(user_id)
-    referral_percent = EnvKeys.REFERRAL_PERCENT
-    bot_username = await get_bot_info(call)
-
-    text = (
-        f"{localize('referral.title')}\n"
-        f"{localize('referral.link', bot_username=bot_username, user_id=user_id)}\n"
-        f"{localize('referral.count', count=referrals)}\n"
-        f"{localize('referral.description', percent=referral_percent)}"
-    )
-    await call.message.edit_text(text, reply_markup=back('profile'))
     await state.clear()
 
 
@@ -191,3 +171,4 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
 # Mount nested routers
 router.include_router(balance_and_payment_router)
 router.include_router(shop_and_goods_router)
+router.include_router(referral_system_router)

@@ -6,7 +6,7 @@ from sqlalchemy import exists
 from sqlalchemy.exc import IntegrityError
 
 from bot.database.models import (
-    User, ItemValues, Goods, Categories, BoughtGoods, Operations, Payments
+    User, ItemValues, Goods, Categories, BoughtGoods, Operations, Payments, ReferralEarnings
 )
 from bot.database import Database
 
@@ -103,3 +103,16 @@ def create_pending_payment(provider: str, external_id: str, user_id: int, amount
             currency=currency,
             status="pending"
         ))
+
+
+def create_referral_earning(referrer_id: int, referral_id: int, amount: int, original_amount: int) -> None:
+    """Create a referral credit record."""
+    with Database().session() as s:
+        s.add(
+            ReferralEarnings(
+                referrer_id=referrer_id,
+                referral_id=referral_id,
+                amount=Decimal(amount),
+                original_amount=Decimal(original_amount)
+            )
+        )
