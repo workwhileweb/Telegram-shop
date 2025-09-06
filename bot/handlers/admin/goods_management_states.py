@@ -1,30 +1,22 @@
+from functools import partial
+
 from aiogram import Router, F
+from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from aiogram.filters.state import StatesGroup, State
 
 from bot.i18n import localize
 from bot.database.models import Permission
-from bot.database.methods import (
-    check_item, delete_item, select_items, get_item_info,
-    get_goods_info, delete_item_from_position
-)
-from bot.keyboards.inline import (
-    back, paginated_keyboard, simple_buttons
-)
+from bot.database.methods import check_item, delete_item, get_item_info, get_goods_info, delete_item_from_position, \
+    query_items_in_position
+from bot.keyboards.inline import back, simple_buttons, lazy_paginated_keyboard
 from bot.logger_mesh import audit_logger
 from bot.filters import HasPermissionFilter
-from bot.misc import EnvKeys
+from bot.misc import EnvKeys, LazyPaginator
+from bot.states import GoodsFSM
 
 router = Router()
 
 
-class GoodsFSM(StatesGroup):
-    """FSM for position (goods) management scenarios."""
-    waiting_item_name_delete = State()
-    waiting_item_name_show = State()
-
-
-# --- Main positions management menu (SHOP_MANAGE)
 @router.callback_query(F.data == 'goods_management', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def goods_management_callback_handler(call: CallbackQuery, state):
     """
@@ -43,7 +35,6 @@ async def goods_management_callback_handler(call: CallbackQuery, state):
     await state.clear()
 
 
-# --- Delete position — ask for name (SHOP_MANAGE)
 @router.callback_query(F.data == 'delete_item', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def delete_item_callback_handler(call: CallbackQuery, state):
     """
@@ -53,7 +44,6 @@ async def delete_item_callback_handler(call: CallbackQuery, state):
     await state.set_state(GoodsFSM.waiting_item_name_delete)
 
 
-# --- Handle name for deleting (SHOP_MANAGE)
 @router.message(GoodsFSM.waiting_item_name_delete, F.text)
 async def delete_str_item(message: Message, state):
     """
@@ -79,7 +69,6 @@ async def delete_str_item(message: Message, state):
     await state.clear()
 
 
-# --- Show items-in-position (SHOP_MANAGE)
 @router.callback_query(F.data == 'show__items_in_position', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def show_items_callback_handler(call: CallbackQuery, state):
     """
@@ -89,11 +78,10 @@ async def show_items_callback_handler(call: CallbackQuery, state):
     await state.set_state(GoodsFSM.waiting_item_name_show)
 
 
-# --- Handle position name & show items (SHOP_MANAGE)
 @router.message(GoodsFSM.waiting_item_name_show, F.text)
-async def show_str_item(message: Message, state):
+async def show_str_item(message: Message, state: FSMContext):
     """
-    Shows all items in the selected position (with pagination).
+    Shows all items in the selected position with lazy loading pagination.
     """
     item_name = message.text.strip()
     item = check_item(item_name)
@@ -105,8 +93,13 @@ async def show_str_item(message: Message, state):
         await state.clear()
         return
 
-    goods = select_items(item_name)  # list[int]
-    if not goods:
+    # Create paginator
+    query_func = partial(query_items_in_position, item_name)
+    paginator = LazyPaginator(query_func, per_page=10)
+
+    # Check if there are any items
+    total = await paginator.get_total_count()
+    if total == 0:
         await message.answer(
             localize('admin.goods.list_in_position.empty'),
             reply_markup=back('goods_management')
@@ -114,24 +107,29 @@ async def show_str_item(message: Message, state):
         await state.clear()
         return
 
-    markup = paginated_keyboard(
-        items=goods,
+    markup = await lazy_paginated_keyboard(
+        paginator=paginator,
         item_text=lambda g: str(g),
         item_callback=lambda g: f"show-item_{g}_{item_name}_goods-in-item-page_{item_name}_0",
         page=0,
-        per_page=10,
         back_cb="goods_management",
         nav_cb_prefix=f"goods-in-item-page_{item_name}_"
     )
+
     await message.answer(localize('admin.goods.list_in_position.title'), reply_markup=markup)
+
+    # Save state
+    await state.update_data(
+        items_in_position_paginator=paginator.get_state(),
+        current_position_name=item_name
+    )
     await state.clear()
 
 
-# --- Pagination inside a position (SHOP_MANAGE)
 @router.callback_query(F.data.startswith('goods-in-item-page_'), HasPermissionFilter(permission=Permission.SHOP_MANAGE))
-async def navigate_items_in_goods(call: CallbackQuery):
+async def navigate_items_in_goods(call: CallbackQuery, state: FSMContext):
     """
-    Paginates items inside a position.
+    Paginates items inside a position with lazy loading.
     Callback data format: goods-in-item-page_{item_name}_{page}
     """
     payload = call.data[len('goods-in-item-page_'):]
@@ -141,29 +139,41 @@ async def navigate_items_in_goods(call: CallbackQuery):
     except ValueError:
         item_name, current_index = payload, 0
 
-    goods = select_items(item_name)
-    if not goods:
-        await call.message.edit_text(localize('admin.goods.list_in_position.empty'),
-                                     reply_markup=back('goods_management'))
+    # Get saved state
+    data = await state.get_data()
+    paginator_state = data.get('items_in_position_paginator')
+
+    # Create paginator with cached state
+    query_func = partial(query_items_in_position, item_name)
+    paginator = LazyPaginator(query_func, per_page=10, state=paginator_state)
+
+    # Check if there are any items
+    total = await paginator.get_total_count()
+    if total == 0:
+        await call.message.edit_text(
+            localize('admin.goods.list_in_position.empty'),
+            reply_markup=back('goods_management')
+        )
         return
 
-    per_page = 10
-    max_page = max((len(goods) - 1) // per_page, 0)
-    current_index = max(0, min(current_index, max_page))
-
-    markup = paginated_keyboard(
-        items=goods,
+    markup = await lazy_paginated_keyboard(
+        paginator=paginator,
         item_text=lambda g: str(g),
         item_callback=lambda g: f"show-item_{g}_{item_name}_goods-in-item-page_{item_name}_{current_index}",
         page=current_index,
-        per_page=per_page,
         back_cb="goods_management",
         nav_cb_prefix=f"goods-in-item-page_{item_name}_"
     )
+
     await call.message.edit_text(localize('admin.goods.list_in_position.title'), reply_markup=markup)
 
+    # Update state
+    await state.update_data(
+        items_in_position_paginator=paginator.get_state(),
+        current_position_name=item_name
+    )
 
-# --- Item info (inside position) (SHOP_MANAGE)
+
 @router.callback_query(F.data.startswith('show-item_'), HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def item_info_callback_handler(call: CallbackQuery):
     """
@@ -218,13 +228,13 @@ async def item_info_callback_handler(call: CallbackQuery):
     await call.message.edit_text(text, parse_mode='HTML', reply_markup=markup)
 
 
-# --- Delete item from position (SHOP_MANAGE)
 @router.callback_query(
     F.data.startswith('delete-item-from-position_'),
     HasPermissionFilter(permission=Permission.SHOP_MANAGE)
 )
-async def process_delete_item_from_position(call: CallbackQuery):
+async def process_delete_item_from_position(call: CallbackQuery, state: FSMContext):
     """
+    Delete item from position and refresh the list with lazy loading.
     Callback data format: delete-item-from-position_{id}_{back_data}
     where back_data = goods-in-item-page_{item_name}_{page}
     """
@@ -255,26 +265,49 @@ async def process_delete_item_from_position(call: CallbackQuery):
             await call.message.edit_text(localize('admin.goods.item.deleted'), reply_markup=back(back_data))
             return
 
-        goods = select_items(item_name)
-        if not goods:
-            await call.message.edit_text(localize('admin.goods.list_in_position.empty'),
-                                         reply_markup=back("goods_management"))
+        # Get saved state
+        data = await state.get_data()
+        paginator_state = data.get('items_in_position_paginator')
+
+        # Create paginator with cached state (but clear cache to refresh after deletion)
+        from bot.database.methods.lazy_queries import query_items_in_position
+        from functools import partial
+        from bot.misc.lazy_paginator import LazyPaginator
+
+        query_func = partial(query_items_in_position, item_name)
+        paginator = LazyPaginator(query_func, per_page=10, state=paginator_state)
+
+        # Clear cache to force reload after deletion
+        paginator.clear_cache()
+
+        # Check if there are any items left
+        total = await paginator.get_total_count()
+        if total == 0:
+            await call.message.edit_text(
+                localize('admin.goods.list_in_position.empty'),
+                reply_markup=back("goods_management")
+            )
         else:
-            per_page = 10
-            max_page = max((len(goods) - 1) // per_page, 0)
+            # Adjust page if needed (if we deleted last item on last page)
+            max_page = max((total - 1) // 10, 0)
             page = max(0, min(page, max_page))
-            markup = paginated_keyboard(
-                items=goods,
+
+            markup = await lazy_paginated_keyboard(
+                paginator=paginator,
                 item_text=lambda g: str(g),
                 item_callback=lambda g: f"show-item_{g}_{item_name}_goods-in-item-page_{item_name}_{page}",
                 page=page,
-                per_page=per_page,
                 back_cb="goods_management",
                 nav_cb_prefix=f"goods-in-item-page_{item_name}_"
             )
+
             await call.message.edit_text(
                 f'{localize("admin.goods.item.deleted")}\n\n{localize("admin.goods.list_in_position.title")}',
-                reply_markup=markup)
+                reply_markup=markup
+            )
+
+            # Update state with new paginator
+            await state.update_data(items_in_position_paginator=paginator.get_state())
     else:
         await call.message.edit_text(localize('admin.goods.item.deleted'), reply_markup=back(back_data))
 

@@ -2,33 +2,22 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.enums.chat_type import ChatType
 from aiogram.fsm.context import FSMContext
-from aiogram.filters.state import State, StatesGroup
 
 from urllib.parse import urlparse
 import datetime
 
 from bot.database.methods import (
     select_max_role_id, create_user, check_role, check_user,
-    select_user_operations, select_user_items, check_user_referrals
+    select_user_operations, select_user_items
 )
-from bot.handlers.other import check_sub_channel, get_bot_info
-from bot.keyboards import main_menu, back, simple_buttons, profile_keyboard
+from bot.handlers.other import check_sub_channel
+from bot.keyboards import main_menu, back, profile_keyboard, check_sub
 from bot.misc import EnvKeys
 from bot.i18n import localize
-
-# Importing child routers
-from bot.handlers.user.balance_and_payment import router as balance_and_payment_router
-from bot.handlers.user.shop_and_goods import router as shop_and_goods_router
 
 router = Router()
 
 
-# FSM for user menu
-class UserStates(StatesGroup):
-    main_menu = State()
-
-
-# /start
 @router.message(F.text.startswith('/start'))
 async def start(message: Message, state: FSMContext):
     """
@@ -70,10 +59,7 @@ async def start(message: Message, state: FSMContext):
         if channel_username:
             chat_member = await message.bot.get_chat_member(chat_id=f'@{channel_username}', user_id=user_id)
             if not await check_sub_channel(chat_member):
-                markup = simple_buttons([
-                    (localize("btn.channel"), f"https://t.me/{channel_username}"),
-                    (localize("btn.check_subscription"), "sub_channel_done"),
-                ], per_row=1)
+                markup = check_sub(channel_username)
                 await message.answer(localize("subscribe.prompt"), reply_markup=markup)
                 await message.delete()
                 return
@@ -81,13 +67,12 @@ async def start(message: Message, state: FSMContext):
         # Ignore channel errors (private channel, wrong link, etc.)
         pass
 
-    markup = main_menu(role=role_data, channel=channel_username, helper=EnvKeys.HELPER_URL)
+    markup = main_menu(role=role_data, channel=channel_username, helper=EnvKeys.HELPER_ID)
     await message.answer(localize("menu.title"), reply_markup=markup)
     await message.delete()
-    await state.set_state(UserStates.main_menu)
+    await state.clear()
 
 
-# Back to menu
 @router.callback_query(F.data == "back_to_menu")
 async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
     """
@@ -103,12 +88,11 @@ async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
                            if parsed.path else channel_url.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
                        ) or None
 
-    markup = main_menu(role=user.role_id, channel=channel_username, helper=EnvKeys.HELPER_URL)
+    markup = main_menu(role=user.role_id, channel=channel_username, helper=EnvKeys.HELPER_ID)
     await call.message.edit_text(localize("menu.title"), reply_markup=markup)
-    await state.set_state(UserStates.main_menu)
+    await state.clear()
 
 
-# Rules
 @router.callback_query(F.data == "rules")
 async def rules_callback_handler(call: CallbackQuery, state: FSMContext):
     """
@@ -122,7 +106,6 @@ async def rules_callback_handler(call: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
-# Profile
 @router.callback_query(F.data == "profile")
 async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     """
@@ -139,7 +122,7 @@ async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
 
     markup = profile_keyboard(referral, items)
     text = (
-        f"{localize('profile.caption', name=tg_user.first_name)}\n"
+        f"{localize('profile.caption', name=tg_user.first_name, id=user_id)}\n"
         f"{localize('profile.id', id=user_id)}\n"
         f"{localize('profile.balance', amount=balance, currency=EnvKeys.PAY_CURRENCY)}\n"
         f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY)}\n"
@@ -149,28 +132,6 @@ async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
-# Referral system
-@router.callback_query(F.data == "referral_system")
-async def referral_callback_handler(call: CallbackQuery, state: FSMContext):
-    """
-    Show referral info and personal invite link.
-    """
-    user_id = call.from_user.id
-    referrals = check_user_referrals(user_id)
-    referral_percent = EnvKeys.REFERRAL_PERCENT
-    bot_username = await get_bot_info(call)
-
-    text = (
-        f"{localize('referral.title')}\n"
-        f"{localize('referral.link', bot_username=bot_username, user_id=user_id)}\n"
-        f"{localize('referral.count', count=referrals)}\n"
-        f"{localize('referral.description', percent=referral_percent)}"
-    )
-    await call.message.edit_text(text, reply_markup=back('profile'))
-    await state.clear()
-
-
-# Subscription re-check
 @router.callback_query(F.data == "sub_channel_done")
 async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
     """
@@ -183,7 +144,7 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
                            parsed_url.path.lstrip('/')
                            if parsed_url.path else chat.replace("https://t.me/", "").replace("t.me/", "").lstrip('@')
                        ) or None
-    helper = EnvKeys.HELPER_URL
+    helper = EnvKeys.HELPER_ID
 
     if channel_username:
         chat_member = await call.bot.get_chat_member(chat_id='@' + channel_username, user_id=user_id)
@@ -191,12 +152,7 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
             user = check_user(user_id)
             markup = main_menu(user.role_id, channel_username, helper)
             await call.message.edit_text(localize("menu.title"), reply_markup=markup)
-            await state.set_state(UserStates.main_menu)
+            await state.clear()
             return
 
     await call.answer(localize("errors.not_subscribed"))
-
-
-# Mount nested routers
-router.include_router(balance_and_payment_router)
-router.include_router(shop_and_goods_router)

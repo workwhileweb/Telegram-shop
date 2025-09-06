@@ -1,7 +1,6 @@
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
-from aiogram.filters.state import StatesGroup, State
 from aiogram.types import FSInputFile
 
 from pathlib import Path
@@ -12,23 +11,18 @@ from bot.database.methods import (
     select_today_users, select_admins, get_user_count, select_today_orders,
     select_all_orders, select_today_operations, select_users_balance, select_all_operations,
     select_count_items, select_count_goods, select_count_categories, select_count_bought_items,
-    select_bought_item, get_all_admins, get_all_users, check_user, check_user_referrals,
-    check_role_name_by_id, select_user_items, select_user_operations
+    select_bought_item, check_user, check_user_referrals, check_role_name_by_id, select_user_items,
+    select_user_operations, query_admins, query_all_users
 )
-from bot.keyboards import back, paginated_keyboard, simple_buttons
+from bot.keyboards import back, simple_buttons, lazy_paginated_keyboard
 from bot.filters import HasPermissionFilter
-from bot.misc import EnvKeys
+from bot.misc import EnvKeys, LazyPaginator
 from bot.i18n import localize
+from bot.states import GoodsFSM
 
 router = Router()
 
 
-class ShopManageFSM(StatesGroup):
-    """FSM for shop-management flows."""
-    waiting_bought_item_id = State()
-
-
-# --- Main shop-management menu
 @router.callback_query(F.data == "shop_management", HasPermissionFilter(Permission.SHOP_MANAGE))
 async def shop_callback_handler(call: CallbackQuery):
     """
@@ -46,11 +40,10 @@ async def shop_callback_handler(call: CallbackQuery):
     await call.message.edit_text(localize("admin.shop.menu.title"), reply_markup=markup)
 
 
-# --- Send logs file (if exists)
 @router.callback_query(F.data == "show_logs", HasPermissionFilter(Permission.SHOP_MANAGE))
 async def logs_callback_handler(call: CallbackQuery):
     """
-    Send bot logs file if it exists and is not empty.
+    Send bot logs (audit) file if it exists and is not empty.
     """
     file_path = Path(EnvKeys.BOT_AUDITFILE)
     if file_path.exists() and file_path.stat().st_size > 0:
@@ -64,7 +57,6 @@ async def logs_callback_handler(call: CallbackQuery):
         await call.answer(localize("admin.shop.logs.empty"))
 
 
-# --- Statistics
 @router.callback_query(F.data == "statistics", HasPermissionFilter(Permission.SHOP_MANAGE))
 async def statistics_callback_handler(call: CallbackQuery):
     """
@@ -92,91 +84,116 @@ async def statistics_callback_handler(call: CallbackQuery):
     await call.message.edit_text(text, reply_markup=back("shop_management"), parse_mode="HTML")
 
 
-# --- Admins list (paginated)
 @router.callback_query(F.data == "admins_list", HasPermissionFilter(Permission.USERS_MANAGE))
-async def admins_callback_handler(call: CallbackQuery):
+async def admins_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Show list of admins with pagination.
+    Show list of admins with lazy loading pagination.
     """
-    admins = get_all_admins() or []
-    markup = paginated_keyboard(
-        items=admins,
+    # Create paginator
+    paginator = LazyPaginator(query_admins, per_page=10)
+
+    markup = await lazy_paginated_keyboard(
+        paginator=paginator,
         item_text=lambda user_id: str(user_id),
         item_callback=lambda user_id: f"show-user_admin-{user_id}",
         page=0,
-        per_page=10,
         back_cb="shop_management",
         nav_cb_prefix="admins-page_",
     )
+
     await call.message.edit_text(localize("admin.shop.admins.title"), reply_markup=markup)
+
+    # Save state
+    await state.update_data(admins_paginator=paginator.get_state())
 
 
 @router.callback_query(F.data.startswith("admins-page_"), HasPermissionFilter(Permission.USERS_MANAGE))
-async def navigate_admins(call: CallbackQuery):
+async def navigate_admins(call: CallbackQuery, state: FSMContext):
     """
-    Pagination for admins list.
+    Pagination for admins list with lazy loading.
     """
     try:
         current_index = int(call.data.split("_")[1])
     except Exception:
         current_index = 0
 
-    admins = get_all_admins() or []
-    markup = paginated_keyboard(
-        items=admins,
+    # Get saved state
+    data = await state.get_data()
+    paginator_state = data.get('admins_paginator')
+
+    # Create paginator with cached state
+    paginator = LazyPaginator(query_admins, per_page=10, state=paginator_state)
+
+    markup = await lazy_paginated_keyboard(
+        paginator=paginator,
         item_text=lambda user_id: str(user_id),
         item_callback=lambda user_id: f"show-user_admin-{user_id}",
         page=current_index,
-        per_page=10,
         back_cb="shop_management",
         nav_cb_prefix="admins-page_",
     )
+
     await call.message.edit_text(localize("admin.shop.admins.title"), reply_markup=markup)
 
+    # Update state
+    await state.update_data(admins_paginator=paginator.get_state())
 
-# --- Users list (paginated)
+
 @router.callback_query(F.data == "users_list", HasPermissionFilter(Permission.USERS_MANAGE))
-async def users_callback_handler(call: CallbackQuery):
+async def users_callback_handler(call: CallbackQuery, state: FSMContext):
     """
-    Show list of all users with pagination.
+    Show list of all users with lazy loading pagination.
     """
-    users = [row[0] for row in (get_all_users() or [])]
-    markup = paginated_keyboard(
-        items=users,
+    # Create paginator
+    paginator = LazyPaginator(query_all_users, per_page=10)
+
+    markup = await lazy_paginated_keyboard(
+        paginator=paginator,
         item_text=lambda user_id: str(user_id),
         item_callback=lambda user_id: f"show-user_user-{user_id}",
         page=0,
-        per_page=10,
         back_cb="shop_management",
         nav_cb_prefix="users-page_",
     )
+
     await call.message.edit_text(localize("admin.shop.users.title"), reply_markup=markup)
+
+    # Save state
+    await state.update_data(users_paginator=paginator.get_state())
 
 
 @router.callback_query(F.data.startswith("users-page_"), HasPermissionFilter(Permission.USERS_MANAGE))
-async def navigate_users(call: CallbackQuery):
+async def navigate_users(call: CallbackQuery, state: FSMContext):
     """
-    Pagination for users list.
+    Pagination for users list with lazy loading.
     """
     try:
         current_index = int(call.data.split("_")[1])
     except Exception:
         current_index = 0
 
-    users = [row[0] for row in (get_all_users() or [])]
-    markup = paginated_keyboard(
-        items=users,
+    # Get saved state
+    data = await state.get_data()
+    paginator_state = data.get('users_paginator')
+
+    # Create paginator with cached state
+    paginator = LazyPaginator(query_all_users, per_page=10, state=paginator_state)
+
+    markup = await lazy_paginated_keyboard(
+        paginator=paginator,
         item_text=lambda user_id: str(user_id),
         item_callback=lambda user_id: f"show-user_user-{user_id}",
         page=current_index,
-        per_page=10,
         back_cb="shop_management",
         nav_cb_prefix="users-page_",
     )
+
     await call.message.edit_text(localize("admin.shop.users.title"), reply_markup=markup)
 
+    # Update state
+    await state.update_data(users_paginator=paginator.get_state())
 
-# --- View user info
+
 @router.callback_query(F.data.startswith("show-user_"), HasPermissionFilter(permission=Permission.USERS_MANAGE))
 async def show_user_info(call: CallbackQuery):
     """
@@ -195,7 +212,7 @@ async def show_user_info(call: CallbackQuery):
     referrals = check_user_referrals(user.telegram_id)
 
     text = (
-        f"{localize('profile.caption', name=user_info.first_name)}\n\n"
+        f"{localize('profile.caption', name=user_info.first_name, id=user_id)}\n\n"
         f"{localize('profile.id', id=user_id)}\n"
         f"{localize('profile.balance', amount=user.balance, currency=EnvKeys.PAY_CURRENCY)}\n"
         f"{localize('profile.total_topup', amount=overall_balance, currency=EnvKeys.PAY_CURRENCY)}\n"
@@ -209,7 +226,6 @@ async def show_user_info(call: CallbackQuery):
     await call.message.edit_text(text, parse_mode="HTML", reply_markup=back(back_target))
 
 
-# --- Ask for purchased item unique ID
 @router.callback_query(F.data == "show_bought_item", HasPermissionFilter(Permission.SHOP_MANAGE))
 async def show_bought_item_callback_handler(call: CallbackQuery, state: FSMContext):
     """
@@ -219,11 +235,10 @@ async def show_bought_item_callback_handler(call: CallbackQuery, state: FSMConte
         localize("admin.shop.bought.prompt_id"),
         reply_markup=back("shop_management"),
     )
-    await state.set_state(ShopManageFSM.waiting_bought_item_id)
+    await state.set_state(GoodsFSM.waiting_bought_item_id)
 
 
-# --- Handle unique ID input and show purchased item
-@router.message(ShopManageFSM.waiting_bought_item_id, F.text, HasPermissionFilter(Permission.SHOP_MANAGE))
+@router.message(GoodsFSM.waiting_bought_item_id, F.text, HasPermissionFilter(Permission.SHOP_MANAGE))
 async def process_item_show(message: Message, state: FSMContext):
     """
     Show purchased item details by unique ID.

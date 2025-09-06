@@ -1,4 +1,4 @@
-"""empty message
+"""configuration table drop
 
 Revision ID: a2e0ad4f2c8d
 Revises: 82f4e758ad31
