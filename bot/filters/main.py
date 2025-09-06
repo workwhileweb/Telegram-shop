@@ -12,8 +12,8 @@ class ValidAmountFilter(BaseFilter):
     """
     Validation of the replenishment amount (used in FSM steps).
     """
-    min_amount: int = EnvKeys.MIN_AMOUNT
-    max_amount: int = EnvKeys.MAX_AMOUNT
+    min_amount: int = int(EnvKeys.MIN_AMOUNT)
+    max_amount: int = int(EnvKeys.MAX_AMOUNT)
 
     async def __call__(self, message: Message) -> bool:
         text: str = message.text or ""
