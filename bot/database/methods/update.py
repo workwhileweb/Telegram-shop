@@ -1,7 +1,6 @@
-from sqlalchemy import exc, update, insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import exc
 
-from bot.database.models import User, ItemValues, Goods, Categories, BoughtGoods, Payments
+from bot.database.models import User, ItemValues, Goods, Categories, BoughtGoods
 from bot.database import Database
 from bot.i18n import localize
 
@@ -22,27 +21,17 @@ def update_balance(telegram_id: int | str, summ: int) -> None:
         )
 
 
-def buy_item_for_balance(telegram_id: int, summ: int) -> int:
-    """Deduct `summ` from user balance and return the new balance."""
-    with Database().session() as s:
-        res = s.execute(
-            update(User)
-            .where(User.telegram_id == telegram_id)
-            .values(balance=User.balance - summ)
-            .returning(User.balance)
-        )
-        return int(res.scalar_one())
-
-
 def update_item(item_name: str, new_name: str, description: str, price, category: str) -> tuple[bool, str | None]:
     """
-    Update a Goods record. If the primary key (name) changes, perform a safe rename:
-    create a new row, re-link children (ItemValues, BoughtGoods), delete the old row.
-    Returns (ok, error_message).
+    Update a Goods record with proper locking.
     """
     try:
         with Database().session() as session:
-            goods = session.query(Goods).filter(Goods.name == item_name).one_or_none()
+            # Blocking goods for updating
+            goods = session.query(Goods).filter(
+                Goods.name == item_name
+            ).with_for_update().one_or_none()
+
             if not goods:
                 return False, localize("admin.goods.update.position.invalid")
 
@@ -52,19 +41,23 @@ def update_item(item_name: str, new_name: str, description: str, price, category
                 goods.category_name = category
                 return True, None
 
+            # Check that the new name is not already taken
             if session.query(Goods).filter(Goods.name == new_name).first():
                 return False, localize("admin.goods.update.position.exists")
 
+            # Create a new product
             new_goods = Goods(name=new_name, price=price, description=description, category_name=category)
             session.add(new_goods)
             session.flush()
 
+            # Update linked records
             session.query(ItemValues).filter(ItemValues.item_name == item_name) \
                 .update({ItemValues.item_name: new_name}, synchronize_session=False)
 
             session.query(BoughtGoods).filter(BoughtGoods.item_name == item_name) \
                 .update({BoughtGoods.item_name: new_name}, synchronize_session=False)
 
+            # Remove the old merchandise
             session.query(Goods).filter(Goods.name == item_name).delete(synchronize_session=False)
 
             return True, None
@@ -74,60 +67,29 @@ def update_item(item_name: str, new_name: str, description: str, price, category
 
 
 def update_category(category_name: str, new_name: str) -> None:
-    """Rename a category and cascade the change into Goods.category_name."""
+    """Rename a category with proper transaction handling."""
     with Database().session() as s:
-        s.query(Goods).filter(Goods.category_name == category_name).update(
-            {Goods.category_name: new_name}
-        )
-        s.query(Categories).filter(Categories.name == category_name).update(
-            {Categories.name: new_name}
-        )
-
-
-def mark_payment_succeeded(provider: str, external_id: str) -> bool:
-    with Database().session() as s:
-        row = s.query(Payments).filter(
-            Payments.provider == provider,
-            Payments.external_id == external_id
-        ).with_for_update(nowait=True).one_or_none()
-        if not row:
-            return False
-        if row.status == "succeeded":
-            return False
-        row.status = "succeeded"
-        return True
-
-
-def ensure_payment_succeeded(provider: str, external_id: str, user_id: int, amount: int, currency: str) -> str:
-    """
-    Changes the payment status to 'succeeded'.
-    Returns: 'created' (new record), 'updated' (from pending to succeeded), 'already' (already succeeded).
-    """
-    with Database().session() as s:
-        row = s.execute(
-            update(Payments)
-            .where(
-                Payments.provider == provider,
-                Payments.external_id == external_id,
-                Payments.status != "succeeded",
-            )
-            .values(status="succeeded")
-            .returning(Payments.id)
-        ).first()
-        if row:
-            return "updated"
-
         try:
-            s.execute(
-                insert(Payments).values(
-                    provider=provider,
-                    external_id=external_id,
-                    user_id=user_id,
-                    amount=amount,
-                    currency=currency,
-                    status="succeeded",
-                )
+            s.begin()
+
+            # Block the category
+            category = s.query(Categories).filter(
+                Categories.name == category_name
+            ).with_for_update().one_or_none()
+
+            if not category:
+                s.rollback()
+                raise ValueError("Category not found")
+
+            # Updating the merchandise
+            s.query(Goods).filter(Goods.category_name == category_name).update(
+                {Goods.category_name: new_name}
             )
-            return "created"
-        except IntegrityError:
-            return "already"
+
+            # Update the category
+            category.name = new_name
+
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise

@@ -5,14 +5,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, PreCheckoutQuery, SuccessfulPayment
 from aiogram.fsm.context import FSMContext
-from sqlalchemy.exc import IntegrityError
 
-from bot.database.methods import (
-    get_user_balance, get_item_info, get_item_value, buy_item, add_bought_item,
-    buy_item_for_balance,
-    get_user_referral, update_balance, create_operation, mark_payment_succeeded, create_pending_payment,
-    ensure_payment_succeeded, create_referral_earning
-)
+from bot.database.methods import get_user_referral, buy_item_transaction, process_payment_with_referral
 from bot.keyboards import back, payment_menu, close, get_payment_choice
 from bot.logger_mesh import audit_logger
 from bot.misc import EnvKeys
@@ -65,13 +59,14 @@ async def invalid_amount(message: Message, state: FSMContext):
     Tell user the amount is invalid.
     """
     await message.answer(
-        localize("payments.replenish_invalid", min_amount=EnvKeys.MIN_AMOUNT, max_amount=EnvKeys.MAX_AMOUNT,
+        localize("payments.replenish_invalid",
+                 min_amount=EnvKeys.MIN_AMOUNT,
+                 max_amount=EnvKeys.MAX_AMOUNT,
                  currency=EnvKeys.PAY_CURRENCY),
         reply_markup=back('replenish_balance')
     )
 
 
-# --- Payment method chosen
 @router.callback_query(
     BalanceStates.waiting_payment,
     F.data.in_(["pay_cryptopay", "pay_stars", "pay_fiat"])
@@ -79,7 +74,6 @@ async def invalid_amount(message: Message, state: FSMContext):
 async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
     """
     Create an invoice for the chosen payment method.
-    For Stars/Fiat we send Telegram invoice (then pre_checkout/success handlers fire).
     """
     data = await state.get_data()
     amount = data.get('amount')
@@ -136,7 +130,6 @@ async def process_replenish_balance(call: CallbackQuery, state: FSMContext):
             except Exception as e:
                 await call.answer(localize("payments.stars.create_fail", error=str(e)), show_alert=True)
                 return
-
             await state.clear()
         else:
             await call.answer(localize("payments.not_configured"), show_alert=True)
@@ -191,27 +184,39 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
         status = info.get("status")
         if status == "paid":
             balance_amount = int(Decimal(str(info.get("amount", "0"))).quantize(Decimal("1.")))
-            referral_id = get_user_referral(user_id)
 
-            if referral_id and EnvKeys.REFERRAL_PERCENT:
+            # Use transactional payment processing
+            used_transaction_version = False
+
+            success, error_msg = process_payment_with_referral(
+                user_id=user_id,
+                amount=Decimal(balance_amount),
+                provider="cryptopay",
+                external_id=str(invoice_id),
+                referral_percent=EnvKeys.REFERRAL_PERCENT
+            )
+
+            used_transaction_version = True
+
+            if not success:
+                if error_msg == "already_processed":
+                    await call.answer(localize("payments.already_processed"), show_alert=True)
+                else:
+                    await call.answer(localize("errors.general_error", e=error_msg), show_alert=True)
+                return
+
+            # Send a notification to the referrer
+            referral_id = get_user_referral(user_id)
+            if referral_id and EnvKeys.REFERRAL_PERCENT and used_transaction_version:
                 try:
-                    referral_operation = int(
+                    referral_amount = int(
                         Decimal(EnvKeys.REFERRAL_PERCENT) / Decimal(100) * Decimal(balance_amount)
                     )
-                    if referral_operation > 0:
-                        update_balance(referral_id, referral_operation)
-
-                        create_referral_earning(
-                            referrer_id=referral_id,
-                            referral_id=user_id,
-                            amount=referral_operation,
-                            original_amount=balance_amount
-                        )
-
+                    if referral_amount > 0:
                         await call.bot.send_message(
                             referral_id,
                             localize('payments.referral.bonus',
-                                     amount=referral_operation,
+                                     amount=referral_amount,
                                      name=call.from_user.first_name,
                                      id=call.from_user.id,
                                      currency=EnvKeys.PAY_CURRENCY),
@@ -220,27 +225,20 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
                 except Exception:
                     pass
 
-            status = ensure_payment_succeeded("cryptopay", str(invoice_id), user_id, balance_amount,
-                                              EnvKeys.PAY_CURRENCY)
-            if status == "already":
-                await call.answer(localize("payments.already_processed"), show_alert=True)
-                return
-
-            create_operation(user_id, balance_amount, datetime.datetime.now())
-            update_balance(user_id, balance_amount)
-
             await call.message.edit_text(
-                localize("payments.topped_simple", amount=balance_amount, currency=EnvKeys.PAY_CURRENCY),
+                localize("payments.topped_simple",
+                         amount=balance_amount,
+                         currency=EnvKeys.PAY_CURRENCY),
                 reply_markup=back('profile')
             )
             await state.clear()
 
-            # audit log
+            # Audit log
             try:
                 user_info = await call.bot.get_chat(user_id)
                 audit_logger.info(
                     f"user {user_id} ({user_info.first_name}) "
-                    f"replenished the balance by: {balance_amount} {EnvKeys.PAY_CURRENCY} ({payment_type})"
+                    f"replenished the balance by: {balance_amount} {EnvKeys.PAY_CURRENCY} (cryptopay)"
                 )
             except Exception:
                 pass
@@ -254,7 +252,7 @@ async def checking_payment(call: CallbackQuery, state: FSMContext):
 # --- Telegram Payments pre-checkout
 @router.pre_checkout_query()
 async def pre_checkout_handler(query: PreCheckoutQuery):
-    """Telegram requires answering ok=True before payment proceeds. Also register pending payment."""
+    """Telegram requires answering ok=True before payment proceeds."""
     try:
         payload = json.loads(query.invoice_payload or "{}")
     except Exception:
@@ -270,7 +268,7 @@ async def pre_checkout_handler(query: PreCheckoutQuery):
 async def successful_payment_handler(message: Message):
     """
     Handle successful payment:
-    - XTR (Stars): total_amount is ⭐. We take RUB from payload (amount) or convert ⭐ → ₽.
+    - XTR (Stars): total_amount is ⭐. take CURRENCY from payload (amount) or convert ⭐ → CURRENCY.
     - Fiat: total_amount is minor units; divide by 100 (or 1 for JPY/KRW).
     """
     sp: SuccessfulPayment = message.successful_payment
@@ -306,27 +304,26 @@ async def successful_payment_handler(message: Message):
 
     # Idempotence
     provider = "telegram" if sp.currency != "XTR" else "stars"
-    external_id = sp.telegram_payment_charge_id or sp.provider_payment_charge_id or f"{provider}:{user_id}:{sp.total_amount}"
+    external_id = sp.telegram_payment_charge_id or sp.provider_payment_charge_id or f"{provider}:{user_id}:{sp.total_amount}:{datetime.datetime.now().timestamp()}"
 
-    # try to mark the payment as "succeeded". If there is no entry, create pending->succeeded within one transaction.
-    try:
-        ok = mark_payment_succeeded(provider, external_id)
-        if not ok:
 
-            try:
-                create_pending_payment(provider, external_id, user_id, amount, sp.currency)
-            except IntegrityError:
-                pass
-            ok = mark_payment_succeeded(provider, external_id)
+    success, error_msg = process_payment_with_referral(
+        user_id=user_id,
+        amount=Decimal(amount),
+        provider=provider,
+        external_id=external_id,
+        referral_percent=EnvKeys.REFERRAL_PERCENT
+    )
 
-        if not ok:
-            # by this point, it's definitely "already processed"
+
+    if not success:
+        if error_msg == "already_processed":
             await message.answer(localize("payments.already_processed"), reply_markup=close())
-            return
-    except Exception:
-        await message.answer(localize("payments.processing_error"), reply_markup=close())
+        else:
+            await message.answer(localize("payments.processing_error"), reply_markup=close())
+        return
 
-    # Referral bonus (if configured)
+    # Sending notification to referrer
     referral_id = get_user_referral(user_id)
     if referral_id and EnvKeys.REFERRAL_PERCENT:
         try:
@@ -334,15 +331,6 @@ async def successful_payment_handler(message: Message):
                 Decimal(EnvKeys.REFERRAL_PERCENT) / Decimal(100) * Decimal(amount)
             )
             if referral_operation > 0:
-                update_balance(referral_id, referral_operation)
-
-                create_referral_earning(
-                    referrer_id=referral_id,
-                    referral_id=user_id,
-                    amount=referral_operation,
-                    original_amount=amount
-                )
-
                 await message.bot.send_message(
                     referral_id,
                     localize('payments.referral.bonus',
@@ -355,17 +343,13 @@ async def successful_payment_handler(message: Message):
         except Exception:
             pass
 
-    # Persist operation & credit balance
-    current_time = datetime.datetime.now()
-    create_operation(user_id, amount, current_time)
-    update_balance(user_id, amount)
-
     suffix = localize("payments.success_suffix.stars") if sp.currency == "XTR" else localize(
         "payments.success_suffix.tg")
     await message.answer(
         localize('payments.topped_with_suffix', amount=amount, suffix=suffix, currency=EnvKeys.PAY_CURRENCY),
         reply_markup=back('profile')
     )
+
     # audit log
     try:
         user_info = await message.bot.get_chat(user_id)
@@ -381,58 +365,70 @@ async def successful_payment_handler(message: Message):
 @router.callback_query(F.data.startswith('buy_'))
 async def buy_item_callback_handler(call: CallbackQuery):
     """
-    Handle product purchase with balance.
+    Processing the purchase of goods with full transactional security.
     """
     item_name = call.data[4:]
     user_id = call.from_user.id
 
-    item_info = get_item_info(item_name)
-    if not item_info:
-        await call.answer(localize("shop.item.not_found"), show_alert=True)
+    # Show the processing indicator
+    await call.answer(localize("shop.purchase.processing"))
+
+    # Execute a transactional purchase
+    success, message, purchase_data = buy_item_transaction(user_id, item_name)
+
+    if not success:
+        # Handling various errors
+        if message == "user_not_found":
+            await call.message.edit_text(
+                localize("shop.purchase.fail.user_not_found"),
+                reply_markup=back('back_to_menu')
+            )
+        elif message == "item_not_found":
+            await call.message.edit_text(
+                localize("shop.item.not_found"),
+                reply_markup=back('shop')
+            )
+        elif message == "insufficient_funds":
+            await call.message.edit_text(
+                localize("shop.insufficient_funds"),
+                reply_markup=back(f'item_{item_name}')
+            )
+        elif message == "out_of_stock":
+            await call.message.edit_text(
+                localize("shop.out_of_stock"),
+                reply_markup=back(f'item_{item_name}')
+            )
+        else:
+            # General error
+            await call.message.edit_text(
+                localize("shop.purchase.fail.general", message=message),
+                reply_markup=back(f'item_{item_name}')
+            )
+            # Logging the error
+            audit_logger.error(
+                f"Purchase error for user {user_id}, item {item_name}: {message}"
+            )
         return
 
-    price = int(item_info["price"])
-    balance = get_user_balance(user_id) or 0
-    if balance < price:
-        await call.message.edit_text(
-            localize("shop.insufficient_funds"),
-            reply_markup=back(f'item_{item_name}')
-        )
-        return
-
-    value_data = get_item_value(item_name)
-    if not value_data:
-        await call.message.edit_text(
-            localize("shop.out_of_stock"),
-            reply_markup=back(f'item_{item_name}')
-        )
-        return
-
-    buy_item(value_data['id'], value_data['is_infinity'])
-
-    add_bought_item(
-        value_data['item_name'],
-        value_data['value'],
-        price,
-        user_id,
-        datetime.datetime.now()
-    )
-
-    new_balance = buy_item_for_balance(user_id, price)
-
+    # Successful purchase
     await call.message.edit_text(
-        localize('shop.purchase.success', balance=new_balance, value=value_data["value"],
-                 currency=EnvKeys.PAY_CURRENCY),
+        localize(
+            'shop.purchase.success',
+            balance=purchase_data['new_balance'],
+            value=purchase_data['value'],
+            currency=EnvKeys.PAY_CURRENCY
+        ),
         parse_mode='HTML',
         reply_markup=back(f'item_{item_name}')
     )
 
-    # audit log
     try:
         user_info = await call.bot.get_chat(user_id)
         audit_logger.info(
             f"user {user_id} ({user_info.first_name}) "
-            f"bought 1 item from position: {value_data['item_name']} for {price} {EnvKeys.PAY_CURRENCY}"
+            f"bought 1 item from position: {item_name} "
+            f"for {purchase_data['price']} {EnvKeys.PAY_CURRENCY} "
+            f"(unique_id: {purchase_data['unique_id']})"
         )
     except Exception:
         pass

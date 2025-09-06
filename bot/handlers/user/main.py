@@ -15,15 +15,9 @@ from bot.keyboards import main_menu, back, profile_keyboard, check_sub
 from bot.misc import EnvKeys
 from bot.i18n import localize
 
-# Importing child routers
-from bot.handlers.user.balance_and_payment import router as balance_and_payment_router
-from bot.handlers.user.shop_and_goods import router as shop_and_goods_router
-from bot.handlers.user.referral_system import router as referral_system_router
-
 router = Router()
 
 
-# /start
 @router.message(F.text.startswith('/start'))
 async def start(message: Message, state: FSMContext):
     """
@@ -79,7 +73,6 @@ async def start(message: Message, state: FSMContext):
     await state.clear()
 
 
-# Back to menu
 @router.callback_query(F.data == "back_to_menu")
 async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
     """
@@ -100,7 +93,6 @@ async def back_to_menu_callback_handler(call: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
-# Rules
 @router.callback_query(F.data == "rules")
 async def rules_callback_handler(call: CallbackQuery, state: FSMContext):
     """
@@ -114,7 +106,6 @@ async def rules_callback_handler(call: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
-# Profile
 @router.callback_query(F.data == "profile")
 async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     """
@@ -141,7 +132,6 @@ async def profile_callback_handler(call: CallbackQuery, state: FSMContext):
     await state.clear()
 
 
-# Subscription re-check
 @router.callback_query(F.data == "sub_channel_done")
 async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
     """
@@ -166,9 +156,3 @@ async def check_sub_to_channel(call: CallbackQuery, state: FSMContext):
             return
 
     await call.answer(localize("errors.not_subscribed"))
-
-
-# Mount nested routers
-router.include_router(balance_and_payment_router)
-router.include_router(shop_and_goods_router)
-router.include_router(referral_system_router)

@@ -1,13 +1,10 @@
 from datetime import datetime
-import random
 from decimal import Decimal
 
 from sqlalchemy import exists
 from sqlalchemy.exc import IntegrityError
 
-from bot.database.models import (
-    User, ItemValues, Goods, Categories, BoughtGoods, Operations, Payments, ReferralEarnings
-)
+from bot.database.models import User, ItemValues, Goods, Categories, Operations, Payments, ReferralEarnings
 from bot.database import Database
 
 
@@ -75,21 +72,6 @@ def create_operation(user_id: int, value: int, operation_time: datetime) -> None
     """Record completed balance operation; commit."""
     with Database().session() as s:
         s.add(Operations(user_id, value, operation_time))
-
-
-def add_bought_item(item_name: str, value: str, price: int, buyer_id: int, bought_time: datetime) -> None:
-    """Record purchase (bought item); commit."""
-    with Database().session() as s:
-        s.add(
-            BoughtGoods(
-                name=item_name,
-                value=value,
-                price=price,
-                buyer_id=buyer_id,
-                bought_datetime=bought_time,
-                unique_id=str(random.randint(1_000_000_000, 9_999_999_999)),
-            )
-        )
 
 
 def create_pending_payment(provider: str, external_id: str, user_id: int, amount: int, currency: str) -> None:

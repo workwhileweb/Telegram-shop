@@ -3,9 +3,7 @@ from aiogram.types import CallbackQuery, Message
 
 from bot.i18n import localize
 from bot.database.models import Permission
-from bot.database.methods import (
-    check_category, create_category, delete_category, update_category
-)
+from bot.database.methods import check_category, create_category, delete_category, update_category
 from bot.keyboards.inline import back, simple_buttons
 from bot.filters import HasPermissionFilter
 from bot.logger_mesh import audit_logger
@@ -14,7 +12,6 @@ from bot.states import CategoryFSM
 router = Router()
 
 
-# --- Main "Categories management" submenu (permission: SHOP_MANAGE)
 @router.callback_query(F.data == 'categories_management', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def categories_callback_handler(call: CallbackQuery):
     """
@@ -32,7 +29,6 @@ async def categories_callback_handler(call: CallbackQuery):
     )
 
 
-# --- Start adding a category
 @router.callback_query(F.data == 'add_category', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def add_category_callback_handler(call: CallbackQuery, state):
     """
@@ -45,7 +41,6 @@ async def add_category_callback_handler(call: CallbackQuery, state):
     await state.set_state(CategoryFSM.waiting_add_category)
 
 
-# --- Handle new category name
 @router.message(CategoryFSM.waiting_add_category, F.text)
 async def process_category_for_add(message: Message, state):
     """
@@ -72,7 +67,6 @@ async def process_category_for_add(message: Message, state):
     await state.clear()
 
 
-# --- Start deleting a category
 @router.callback_query(F.data == 'delete_category', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def delete_category_callback_handler(call: CallbackQuery, state):
     """
@@ -99,7 +93,6 @@ async def process_category_for_delete(message: Message, state):
             reply_markup=back("categories_management"),
         )
     else:
-        # DB has FK: goods.category_name -> categories.name (RESTRICT).
         delete_category(category_name)
         await message.answer(
             localize("admin.categories.delete.success"),
@@ -113,7 +106,6 @@ async def process_category_for_delete(message: Message, state):
     await state.clear()
 
 
-# --- Start renaming a category
 @router.callback_query(F.data == 'update_category', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def update_category_callback_handler(call: CallbackQuery, state):
     """
@@ -126,7 +118,6 @@ async def update_category_callback_handler(call: CallbackQuery, state):
     await state.set_state(CategoryFSM.waiting_update_category)
 
 
-# --- Verify existing category, then ask for new name
 @router.message(CategoryFSM.waiting_update_category, F.text)
 async def check_category_for_update(message: Message, state):
     """
@@ -150,7 +141,6 @@ async def check_category_for_update(message: Message, state):
     await state.set_state(CategoryFSM.waiting_update_category_name)
 
 
-# --- Finish renaming
 @router.message(CategoryFSM.waiting_update_category_name, F.text)
 async def check_category_name_for_update(message: Message, state):
     """

@@ -8,11 +8,20 @@ from bot.misc import EnvKeys
 from bot.handlers import register_all_handlers
 from bot.database.models import register_models
 from bot.logger_mesh import configure_logging
+from bot.middleware import setup_rate_limiting, RateLimitConfig
 
 
 async def __on_start_up(dp: Dispatcher) -> None:
     register_all_handlers(dp)
     register_models()
+
+    rate_config = RateLimitConfig(
+        global_limit=30,
+        global_window=60,
+        ban_duration=300,
+        admin_bypass=True
+    )
+    setup_rate_limiting(dp, rate_config)
 
 
 async def start_bot() -> None:

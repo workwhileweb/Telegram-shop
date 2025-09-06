@@ -87,6 +87,7 @@ The bot has configured logging that reports errors or actions of administrators
 
 - #### Debug:
     - logger
+    - pytest
 
 ## Installation 💾
 

@@ -2,6 +2,7 @@ from typing import Callable, Iterable, Tuple
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bot.i18n import localize
+from bot.misc import LazyPaginator
 
 
 def main_menu(role: int, channel: str | None = None, helper: str | None = None) -> InlineKeyboardMarkup:
@@ -77,36 +78,35 @@ def close() -> InlineKeyboardMarkup:
     return simple_buttons([(localize("btn.close"), "close")])
 
 
-def paginated_keyboard(
-        items: list,
+async def lazy_paginated_keyboard(
+        paginator: 'LazyPaginator',
         item_text: Callable[[object], str],
         item_callback: Callable[[object], str],
         page: int = 0,
-        per_page: int = 10,
         back_cb: str | None = None,
         nav_cb_prefix: str = "",
         back_text: str | None = None,
 ) -> InlineKeyboardMarkup:
     """
-    Pagination: 1 item per row, navigation below, 'Back' below.
+    Lazy pagination keyboard with data loading on demand
     """
     kb = InlineKeyboardBuilder()
-    total = len(items)
-    start = page * per_page
-    end = start + per_page
 
-    for item in items[start:end]:
+    # Get items for current page
+    items = await paginator.get_page(page)
+
+    for item in items:
         kb.button(text=item_text(item), callback_data=item_callback(item))
     kb.adjust(1)
 
-    # page calculation
-    max_page = max((total - 1) // per_page, 0)
-    if max_page > 0:
+    # Navigation
+    total_pages = await paginator.get_total_pages()
+    if total_pages > 1:
         nav_buttons = []
         if page > 0:
             nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data=f"{nav_cb_prefix}{page - 1}"))
-        nav_buttons.append(InlineKeyboardButton(text=f"{page + 1}/{max_page + 1}", callback_data="noop"))
-        if page < max_page:
+        nav_buttons.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
             nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data=f"{nav_cb_prefix}{page + 1}"))
         kb.row(*nav_buttons)
 
@@ -116,13 +116,13 @@ def paginated_keyboard(
     return kb.as_markup()
 
 
-def item_info(item_name: str, category: str) -> InlineKeyboardMarkup:
+def item_info(item_name: str, back_data: str) -> InlineKeyboardMarkup:
     """
     Product card.
     """
     kb = InlineKeyboardBuilder()
     kb.button(text=localize("btn.buy"), callback_data=f"buy_{item_name}")
-    kb.button(text=localize("btn.back"), callback_data=f"category_{category}")
+    kb.button(text=localize("btn.back"), callback_data=back_data)
     kb.adjust(2)
     return kb.as_markup()
 

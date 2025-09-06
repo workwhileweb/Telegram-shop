@@ -6,3 +6,7 @@ aiohttp~=3.12.14
 
 # DB drivers
 psycopg2-binary~=2.9
+
+# Pytest
+pytest~=8.4.2
+pytest-asyncio~=1.1.0

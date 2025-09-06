@@ -77,30 +77,6 @@ def get_all_users() -> list[tuple[int]]:
         return s.query(User.telegram_id).all()
 
 
-def get_all_categories() -> list[str]:
-    """Return list of all category names."""
-    with Database().session() as s:
-        return [row[0] for row in s.query(Categories.name).order_by(Categories.name.asc()).all()]
-
-
-def get_all_items(category_name: str) -> list[str]:
-    """Return all item (position) names for a category."""
-    with Database().session() as s:
-        return [row[0] for row in s.query(Goods.name)
-        .filter(Goods.category_name == category_name)
-        .order_by(Goods.name.asc())
-        .all()]
-
-
-def select_items(item_name: str) -> list[int]:
-    """Return list of item_value ids for given item (position) name."""
-    with Database().session() as s:
-        return [row[0] for row in s.query(ItemValues.id)
-        .filter(ItemValues.item_name == item_name)
-        .order_by(ItemValues.id.asc())
-        .all()]
-
-
 def get_bought_item_info(item_id: str) -> dict | None:
     """Return bought item row as dict by row id, or None."""
     with Database().session() as s:
@@ -122,22 +98,6 @@ def get_goods_info(item_id: int) -> dict | None:
         return result.__dict__ if result else None
 
 
-def get_user_balance(telegram_id: int):
-    """Return user's balance (Decimal), or 0 if missing."""
-    with Database().session() as s:
-        result = s.query(User.balance).filter(User.telegram_id == telegram_id).first()
-        return result[0] if result else Decimal(0)
-
-
-def get_all_admins() -> list[int]:
-    """Return list of telegram_ids of users with ADMIN role."""
-    with Database().session() as s:
-        return [
-            row[0]
-            for row in s.query(User.telegram_id).join(Role).filter(Role.name == 'ADMIN').all()
-        ]
-
-
 def check_item(item_name: str) -> dict | None:
     """Return item (position) as dict by name, or None."""
     with Database().session() as s:
@@ -149,13 +109,6 @@ def check_category(category_name: str) -> dict | None:
     """Return category as dict by name, or None."""
     with Database().session() as s:
         result = s.query(Categories).filter(Categories.name == category_name).first()
-        return result.__dict__ if result else None
-
-
-def get_item_value(item_name: str) -> dict | None:
-    """Return first item_value of item by name as dict, or None."""
-    with Database().session() as s:
-        result = s.query(ItemValues).filter(ItemValues.item_name == item_name).first()
         return result.__dict__ if result else None
 
 
@@ -180,12 +133,6 @@ def select_user_items(buyer_id: int | str) -> int:
     """Return count of bought items for user."""
     with Database().session() as s:
         return s.query(func.count()).filter(BoughtGoods.buyer_id == buyer_id).scalar() or 0
-
-
-def select_bought_items(buyer_id: int) -> list[BoughtGoods]:
-    """Return all BoughtGoods rows for user."""
-    with Database().session() as s:
-        return s.query(BoughtGoods).filter(BoughtGoods.buyer_id == buyer_id).all()
 
 
 def select_bought_item(unique_id: int) -> dict | None:
@@ -284,49 +231,6 @@ def get_user_referral(user_id: int) -> Optional[int]:
     with Database().session() as s:
         result = s.query(User.referral_id).filter(User.telegram_id == user_id).first()
         return result[0] if result else None
-
-
-def get_user_referrals_list(user_id: int) -> List[Dict]:
-    """
-    Get a list of all user referrals with their data.
-    Returns a list of dictionaries with information about each referral.
-    """
-    with Database().session() as s:
-        referrals = s.query(User).filter(User.referral_id == user_id).all()
-        result = []
-        for ref in referrals:
-            # Get the total amount of all accruals from this referral
-            total_earned = s.query(func.sum(ReferralEarnings.amount)).filter(
-                ReferralEarnings.referrer_id == user_id,
-                ReferralEarnings.referral_id == ref.telegram_id
-            ).scalar() or Decimal(0)
-
-            result.append({
-                'telegram_id': ref.telegram_id,
-                'registration_date': ref.registration_date,
-                'total_earned': total_earned
-            })
-
-        return sorted(result, key=lambda x: x['total_earned'], reverse=True)
-
-
-def get_referral_earnings_from_user(referrer_id: int, referral_id: int) -> List[ReferralEarnings]:
-    """Get all accruals from a specific referral."""
-    with Database().session() as s:
-        return s.query(ReferralEarnings).filter(
-            ReferralEarnings.referrer_id == referrer_id,
-            ReferralEarnings.referral_id == referral_id
-        ).order_by(desc(ReferralEarnings.created_at)).all()
-
-
-def get_all_referral_earnings(referrer_id: int) -> List[ReferralEarnings]:
-    """
-    Get all user referral charges.
-    """
-    with Database().session() as s:
-        return s.query(ReferralEarnings).filter(
-            ReferralEarnings.referrer_id == referrer_id
-        ).order_by(desc(ReferralEarnings.created_at)).all()
 
 
 def get_referral_earnings_stats(referrer_id: int) -> Dict:

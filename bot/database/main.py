@@ -1,7 +1,6 @@
 from contextlib import contextmanager
 from sqlalchemy import create_engine, Engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from bot.database.dsn import dsn
 from bot.misc import SingletonMeta

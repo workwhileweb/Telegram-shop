@@ -244,7 +244,25 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin.shop.bought.prompt_id": "Введите уникальный ID купленного товара",
         "admin.shop.bought.not_found": "❌ Товар с указанным уникальным ID не найден",
         "broadcast.prompt": "Отправьте сообщение для рассылки:",
-        "broadcast.done": "Рассылка завершена. Сообщение отправлено {count} пользователям.",
+        "broadcast.creating": "📤 Начинаем рассылку...\n👥 Всего пользователей: {ids}",
+        "broadcast.progress": (
+            "📤 Рассылка в процессе...\n\n"
+            "📊 Прогресс: {progress:.1f}%\n"
+            "✅ Отправлено: {sent}/{total}\n"
+            "❌ Ошибок: {failed}\n"
+            "⏱ Прошло времени: {time} сек"),
+        "broadcast.done": (
+            "✅ Рассылка завершена!\n\n"
+            "📊 Статистика:\n"
+            "👥 Всего: {total}\n"
+            "✅ Доставлено: {sent}\n"
+            "❌ Не доставлено: {failed}\n"
+            "🚫 Заблокировали бота: ~{blocked}\n"
+            "📈 Успешность: {success}%\n"
+            "⏱ Время: {duration} сек"
+        ),
+        "broadcast.cancel": "❌ Рассылка отменена",
+        "broadcast.warning": "Нет активной рассылки",
 
         # === Payments / Top-up Flow ===
         "payments.replenish_prompt": "Введите сумму пополнения в {currency}:",
@@ -290,6 +308,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "shop.insufficient_funds": "❌ Недостаточно средств",
         "shop.out_of_stock": "❌ Товара нет в наличии",
         "shop.purchase.success": "✅ Товар куплен. <b>Баланс</b>: <i>{balance}</i> {currency}\n\n{value}",
+        "shop.purchase.processing": "⏳ Обрабатываем покупку...",
+        "shop.purchase.fail.user_not_found": "❌ Пользователь не найден в системе",
+        "shop.purchase.fail.general": "❌ Ошибка при покупке: {message}",
 
         # === Purchases ===
         "purchases.title": "Купленные товары:",
@@ -301,6 +322,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "purchases.item.unique_id": "<b>🧾 Уникальный ID</b>: <code>{uid}</code>",
         "purchases.item.value": "<b>🔑 Значение</b>:\n<code>{value}</code>",
         "purchases.item.buyer": "<b>Покупатель</b>: <code>{buyer}</code>",
+
+        # === Middleware ===
+        "middleware.ban": "⏳ Вы временно заблокированы. Подождите {time} секунд",
+        "middleware.above_limits": "⚠️ Слишком много запросов! Вы временно заблокированы.",
+        "middleware.waiting": "⏳ Подождите {time} секунд перед следующим действием.",
 
         # === Errors ===
         "errors.not_subscribed": "Вы не подписались",
@@ -556,7 +582,25 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "admin.shop.bought.prompt_id": "Enter purchased item unique ID",
         "admin.shop.bought.not_found": "❌ Item with given unique ID not found",
         "broadcast.prompt": "Send a message to broadcast:",
-        "broadcast.done": "Broadcast finished. Message sent to {count} users.",
+        "broadcast.creating": "📤 Starting the newsletter...\n👥 Total users: {ids}",
+        "broadcast.progress": (
+            "📤 Broadcasting in progress...\n\n\n"
+            "📊 Progress: {progress:.1f}%{n}"
+            "✅ Sent: {sent}/{total}\n"
+            "❌ Errors: {failed}\n"
+            "⏱ Time elapsed: {time} sec"),
+        "broadcast.done": (
+            "✅ Broadcasting is complete! \n\n"
+            "📊 Statistics:📊\n"
+            "👥 Total: {total}\n"
+            "✅ Delivered: {sent}\n"
+            "❌ Undelivered: {failed}\n"
+            "🚫 Blocked bot: ~{blocked}\n"
+            "📈 Success rate: {success}%\n"
+            "⏱ Time: {duration} sec"
+        ),
+        "broadcast.cancel": "❌ The broadcast has been canceled.",
+        "broadcast.warning": "No active broadcast",
 
         # === Payments / Top-up Flow ===
         "payments.replenish_prompt": "Enter top-up amount in {currency}:",
@@ -602,6 +646,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "shop.insufficient_funds": "❌ Insufficient funds",
         "shop.out_of_stock": "❌ Item is out of stock",
         "shop.purchase.success": "✅ Item purchased. <b>Balance</b>: <i>{balance}</i> {currency}\n\n{value}",
+        "shop.purchase.processing": "⏳ Processing the purchase...",
+        "shop.purchase.fail.user_not_found": "❌ User not found in the system",
+        "shop.purchase.fail.general": "❌ Purchase error: {message}",
 
         # === Purchases ===
         "purchases.title": "Purchased items:",
@@ -614,6 +661,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "purchases.item.value": "<b>🔑 Value</b>:\n<code>{value}</code>",
         "purchases.item.buyer": "<b>Buyer</b>: <code>{buyer}</code>",
 
+        # === Middleware ===
+        "middleware.ban": "⏳ You are temporarily blocked. Wait {time} seconds.",
+        "middleware.above_limits": "⚠️ Too many requests! You are temporarily blocked.",
+        "middleware.waiting": "⏳ Wait {time} seconds for the next action.",
+
         # === Errors ===
         "errors.not_subscribed": "You are not subscribed",
         "errors.something_wrong": "❌ Something went wrong. Please try again.",
@@ -623,5 +675,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "errors.channel.telegram_not_found": "I can't write to the channel. Add me as a channel admin for uploads @{channel} with the right to publish messages.",
         "errors.channel.telegram_forbidden_error": "Channel not found. Check the channel username for uploads @{channel}.",
         "errors.channel.telegram_bad_request": "Failed to send to the channel for uploads: {e}",
+        "errors.general_error": "❌ Error: {e}",
     },
 }

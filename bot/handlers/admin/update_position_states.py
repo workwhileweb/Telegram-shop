@@ -156,10 +156,6 @@ async def updating_item_amount(call: CallbackQuery, state):
     await state.clear()
 
 
-# ==============================
-#  Block 2. Full item update
-# ==============================
-
 @router.callback_query(F.data == 'update_item', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def update_item_callback_handler(call: CallbackQuery, state):
     """Starts the full update flow."""

@@ -18,7 +18,6 @@ from bot.states import AddItemFSM
 router = Router()
 
 
-# --- Start creation scenario (SHOP_MANAGE permission required)
 @router.callback_query(F.data == 'add_item', HasPermissionFilter(permission=Permission.SHOP_MANAGE))
 async def add_item_callback_handler(call: CallbackQuery, state):
     """
@@ -28,7 +27,6 @@ async def add_item_callback_handler(call: CallbackQuery, state):
     await state.set_state(AddItemFSM.waiting_item_name)
 
 
-# --- Validate position name (must not exist)
 @router.message(AddItemFSM.waiting_item_name, F.text)
 async def check_item_name_for_add(message: Message, state):
     """
@@ -48,7 +46,6 @@ async def check_item_name_for_add(message: Message, state):
     await state.set_state(AddItemFSM.waiting_item_description)
 
 
-# --- Input description
 @router.message(AddItemFSM.waiting_item_description, F.text)
 async def add_item_description(message: Message, state):
     """
@@ -60,7 +57,6 @@ async def add_item_description(message: Message, state):
     await state.set_state(AddItemFSM.waiting_item_price)
 
 
-# --- Input price
 @router.message(AddItemFSM.waiting_item_price, F.text)
 async def add_item_price(message: Message, state):
     """
@@ -76,7 +72,6 @@ async def add_item_price(message: Message, state):
     await state.set_state(AddItemFSM.waiting_category)
 
 
-# --- Validate category
 @router.message(AddItemFSM.waiting_category, F.text)
 async def check_category_for_add_item(message: Message, state):
     """
@@ -99,7 +94,6 @@ async def check_category_for_add_item(message: Message, state):
     await state.set_state(AddItemFSM.waiting_infinity)
 
 
-# --- Choose mode: infinite / finite
 @router.callback_query(F.data.startswith('infinity_'), AddItemFSM.waiting_infinity)
 async def adding_value_to_position(call: CallbackQuery, state):
     """
@@ -124,7 +118,6 @@ async def adding_value_to_position(call: CallbackQuery, state):
         await state.set_state(AddItemFSM.waiting_single_value)
 
 
-# --- Collect values (NON-infinite mode)
 @router.message(AddItemFSM.waiting_values, F.text)
 async def collect_item_value(message: Message, state):
     """
@@ -146,7 +139,6 @@ async def collect_item_value(message: Message, state):
     )
 
 
-# --- Finish adding all values (NON-infinite mode)
 @router.callback_query(F.data == 'finish_adding_items', AddItemFSM.waiting_values)
 async def finish_adding_items_callback_handler(call: CallbackQuery, state):
     """
@@ -231,7 +223,6 @@ async def finish_adding_items_callback_handler(call: CallbackQuery, state):
     await state.clear()
 
 
-# --- Single value input (Infinite mode)
 @router.message(AddItemFSM.waiting_single_value, F.text)
 async def finish_adding_item_callback_handler(message: Message, state):
     """
